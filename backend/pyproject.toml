@@ -1,0 +1,43 @@
+# Configuración de herramientas de calidad del backend.
+#
+# Las dependencias siguen en requirements.txt: este fichero es solo configuración, no un
+# `pyproject` de empaquetado. El backend se despliega como imagen Docker, no como paquete
+# instalable, así que declarar metadatos de build sería ruido.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes: imports sin usar, variables muertas
+    "I",    # isort: orden de imports
+    "B",    # flake8-bugbear: trampas reales (mutable default args, zip sin strict…)
+    "UP",   # pyupgrade: sintaxis moderna
+    "C4",   # comprehensions
+    "SIM",  # simplificaciones
+    "BLE",  # blind-except: obliga a justificar cada `except Exception`
+    "RUF",  # reglas propias de ruff
+]
+ignore = [
+    # `raise ... from err` dentro de un `except` ya se aplica donde importa; exigirlo en
+    # todos los casos añade ruido sin mejorar la traza.
+    "B904",
+    # Líneas largas: las controla el formateador, no el linter.
+    "E501",
+]
+
+# Sin `per-file-ignores` a propósito. Las excepciones se marcan con `# noqa` en la línea
+# concreta, donde se lee junto al código que la necesita, en lugar de en un fichero de
+# configuración que nadie abre. Y `BLE001` está activo precisamente para que cada
+# `except Exception` lleve su justificación explícita.
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]

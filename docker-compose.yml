@@ -1,0 +1,118 @@
+name: demoeca
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: demoeca-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-demoeca}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-demoeca}
+      POSTGRES_DB: ${POSTGRES_DB:-demoeca}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Habilita la extensión `vector` en el primer arranque del volumen.
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-demoeca} -d ${POSTGRES_DB:-demoeca}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: demoeca-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: demoeca-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"   # API S3
+      - "9001:9001"   # Consola web
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Crea los buckets al arrancar y los deja privados. Se ejecuta una vez y termina.
+  minio-init:
+    image: minio/mc:latest
+    container_name: demoeca-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin};
+      mc mb --ignore-existing local/${MINIO_BUCKET_VIDEO:-demoeca-video};
+      mc mb --ignore-existing local/${MINIO_BUCKET_DOCS:-demoeca-docs};
+      mc mb --ignore-existing local/${MINIO_BUCKET_PUBLIC:-demoeca-public};
+      mc anonymous set download local/${MINIO_BUCKET_PUBLIC:-demoeca-public};
+      echo 'Buckets listos';
+      "
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: api
+    container_name: demoeca-backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-demoeca}:${POSTGRES_PASSWORD:-demoeca}@postgres:5432/${POSTGRES_DB:-demoeca}
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Worker con ffmpeg. Escucha las dos colas: `video` (transcodificación) e `ingest`
+  # (vectorización). Ver D-009 en DECISIONS.md.
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: worker
+    container_name: demoeca-worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-demoeca}:${POSTGRES_PASSWORD:-demoeca}@postgres:5432/${POSTGRES_DB:-demoeca}
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - backend
+    command: celery -A app.workers.celery_app.celery_app worker --loglevel=info -Q video,ingest --concurrency=2
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

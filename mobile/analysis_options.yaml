@@ -1,0 +1,23 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-raw-types: true
+  errors:
+    # Un `TODO` no debe romper el análisis, pero sí verse.
+    todo: info
+
+linter:
+  rules:
+    # Constructores const donde se pueda: menos reconstrucciones de widgets.
+    prefer_const_constructors: true
+    prefer_const_literals_to_create_immutables: true
+    # `print` en producción no va a ningún sitio útil en un móvil.
+    avoid_print: true
+    # Un `BuildContext` usado tras un `await` puede referirse a un widget ya desmontado; es la
+    # causa más común de fallos intermitentes en Flutter.
+    use_build_context_synchronously: true
+    always_declare_return_types: true
+    prefer_final_locals: true
+    require_trailing_commas: true

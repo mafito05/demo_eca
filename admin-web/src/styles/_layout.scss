@@ -1,0 +1,378 @@
+/* Estructura de página: shell, sidebar, topbar y rejillas.
+ *
+ * El shell usa `grid-template-areas` para que el sidebar ocupe toda la altura y el topbar solo la
+ * columna de contenido. Es el patrón de Stripe/Linear, y evita el doble borde en la esquina que
+ * aparece cuando el topbar cruza por encima del sidebar.
+ */
+
+.shell {
+  display: grid;
+  grid-template-areas:
+    'side top'
+    'side main';
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+  height: 100vh;
+  transition: grid-template-columns var(--dur) var(--ease);
+}
+
+/* Rail: solo iconos. El ancho lo controla el shell, no el sidebar, porque la columna del grid es
+ * la que tiene que encogerse. */
+.shell[data-sidebar='rail'] {
+  grid-template-columns: var(--sidebar-w-rail) minmax(0, 1fr);
+}
+
+/* Drawer: el sidebar sale del flujo y se superpone, así que la columna desaparece. */
+.shell[data-sidebar='drawer'] {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: var(--sp-2);
+  z-index: 100;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+}
+.skip-link:focus {
+  left: var(--sp-2);
+}
+
+/* --- Sidebar ------------------------------------------------------------- */
+.sidebar {
+  grid-area: side;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.shell[data-sidebar='drawer'] .sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--sidebar-w);
+  z-index: var(--z-drawer);
+  transform: translateX(-100%);
+  box-shadow: var(--shadow-2);
+  transition: transform var(--dur) var(--ease);
+}
+.shell[data-sidebar='drawer'].drawer-open .sidebar {
+  transform: translateX(0);
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  z-index: calc(var(--z-drawer) - 1);
+  border: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  min-height: var(--topbar-h);
+}
+
+.brand-mark {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  display: grid;
+  place-items: center;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
+  letter-spacing: -0.02em;
+}
+
+.brand-text {
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.brand-name {
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.brand-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-3) 0;
+}
+
+.nav-group {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: var(--fw-bold);
+  color: var(--text-dim);
+  padding: var(--sp-4) var(--sp-4) var(--sp-2);
+  white-space: nowrap;
+}
+.nav-group:first-child {
+  padding-top: 0;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0.45rem var(--sp-4);
+  color: var(--text-dim);
+  font-weight: var(--fw-med);
+  border-left: 2px solid transparent;
+  white-space: nowrap;
+  min-width: 0;
+}
+.nav-item:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+  text-decoration: none;
+}
+.nav-item.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+  font-weight: var(--fw-semi);
+}
+.nav-item app-icon {
+  flex: 0 0 auto;
+}
+.nav-item.soon {
+  opacity: 0.5;
+  cursor: default;
+}
+.nav-item.soon:hover {
+  background: none;
+  color: var(--text-dim);
+}
+
+.sidebar-foot {
+  border-top: 1px solid var(--border);
+  padding: var(--sp-2);
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* En rail se oculta todo el texto y los iconos quedan centrados. */
+.shell[data-sidebar='rail'] {
+  .brand {
+    justify-content: center;
+    padding: var(--sp-4) 0;
+  }
+  .brand-text,
+  .nav-group,
+  .nav-label {
+    display: none;
+  }
+  .nav-item {
+    justify-content: center;
+    padding: 0.5rem 0;
+  }
+  .sidebar-foot {
+    justify-content: center;
+  }
+}
+
+/* --- Topbar -------------------------------------------------------------- */
+.topbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-5);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+
+.topbar-left,
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-base);
+  min-width: 0;
+  overflow: hidden;
+}
+.crumb {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.crumb:last-child {
+  color: var(--text);
+  font-weight: var(--fw-semi);
+}
+.crumb-sep {
+  color: var(--border-strong);
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  background: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+/* --- Contenido ----------------------------------------------------------- */
+.main {
+  grid-area: main;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.page {
+  padding: var(--sp-5) var(--sp-6);
+  max-width: var(--page-max);
+}
+
+.page-head {
+  margin-bottom: var(--sp-5);
+}
+.page-head p {
+  color: var(--text-dim);
+  margin: 0;
+  max-width: 76ch;
+}
+
+/* --- Rejillas ------------------------------------------------------------ */
+.grid {
+  display: grid;
+  gap: var(--sp-4);
+}
+.grid.cols-2 {
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+}
+.grid.cols-3 {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+/* `.split` era la misma regla copiada en SIETE componentes, cada uno con su proporción y su
+ * breakpoint (1050 y 1100 mezclados, diferencia imperceptible). Aquí vive una vez, con tres
+ * variantes que cubren los siete casos, y un único punto de quiebre. */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+}
+.split.wide-left {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+}
+.split.even {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+@media (max-width: 1100px) {
+  .split,
+  .split.wide-left,
+  .split.even {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+/* Fila de filtros: SIEMPRE encima de lo que filtra, nunca dentro de una tarjeta. Un filtro
+ * dentro de una card sugiere que solo afecta a esa card. */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-4);
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.segmented button {
+  border: none;
+  border-radius: 0;
+  background: var(--surface);
+  padding: 0.35rem 0.7rem;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+.segmented button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: var(--fw-semi);
+}
+
+@media (max-width: 900px) {
+  .page {
+    padding: var(--sp-4);
+  }
+  .topbar {
+    padding: 0 var(--sp-4);
+  }
+}

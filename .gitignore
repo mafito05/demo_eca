@@ -1,0 +1,61 @@
+# Secretos
+.env
+.env.local
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+requirements.lock.txt
+
+# Node / Angular
+node_modules/
+admin-web/dist/
+admin-web/.angular/
+
+# Flutter
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/ios/Pods/
+
+# Editores
+.vscode/
+.idea/
+*.swp
+
+# SO
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Temporales de medios
+*.mp4
+*.ts
+!**/src/**/*.ts
+hls_output/
+
+# Media temporal de los tests de video
+backend/.tmp_media/
+
+# Flutter (generado por `flutter create` / build)
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/ios/Pods/
+mobile/ios/Flutter/Generated.xcconfig
+mobile/ios/Flutter/flutter_export_environment.sh
+mobile/pubspec.lock
+
+# Config local de Claude Code (personal, no compartida)
+.claude/settings.local.json

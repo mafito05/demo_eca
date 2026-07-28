@@ -1,0 +1,40 @@
+/* Utilidades. Deliberadamente pocas: esto no es Tailwind, y una utilidad por cada propiedad
+ * acabaría siendo peor que las siete copias de `.split` que este fichero ayuda a eliminar. */
+
+.muted {
+  color: var(--text-dim);
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.trunc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Visible para lectores de pantalla, invisible en pantalla.
+ * OJO: no meter esto dentro de un `<button>` cuyo texto compare `capture-panel.mjs` por
+ * `textContent` — el texto oculto sí cuenta y rompería la comparación. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,0 +1,93 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Cámara: es la función principal de la app (escanear el QR de la máquina).
+         `required=false` para que la app siga instalable en dispositivos sin cámara, donde el
+         usuario puede introducir el código a mano. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+
+    <!-- El manifiesto de debug ya la incluye, pero en release hay que declararla explícitamente
+         o la app compila y falla en el primer request. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- usesCleartextTraffic: la demo habla HTTP plano a una IP de la LAN (API en :8000 y
+         MinIO en :9000). Dio implementa la red en Dart y no pasa por la NetworkSecurityPolicy
+         de Android, pero ExoPlayer (video_player) es codigo nativo y SI la respeta: sin este
+         atributo el video falla con CleartextNotPermitted mientras el resto de la app funciona.
+         En produccion iria TLS y este atributo fuera. -->
+    <application
+        android:label="DemoECA"
+        android:name="${applicationName}"
+        android:usesCleartextTraffic="true"
+        android:icon="@mipmap/ic_launcher">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <!-- ================================================================
+                 App Link: abre la app al escanear el QR impreso en la máquina.
+
+                 `autoVerify="true"` es lo que evita el diálogo "¿con qué app abrir
+                 esto?": Android comprueba
+                 https://DOMINIO/.well-known/assetlinks.json y, si contiene el
+                 huella SHA-256 del certificado de firma de esta app, la abre
+                 directamente.
+
+                 Sin ese fichero servido por el dominio real, el enlace se abre en
+                 el navegador. No es un fallo de la app: falta el paso del lado del
+                 servidor. Ver docs/deep-linking.md.
+                 ================================================================ -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https"
+                      android:host="demoeca.example.com"
+                      android:pathPrefix="/m/"/>
+            </intent-filter>
+
+            <!-- Esquema propio: respaldo para pruebas locales, cuando no hay un dominio con
+                 assetlinks.json publicado. NO se usa en el QR impreso, porque si la app no está
+                 instalada un esquema propio no abre nada y el código quedaría muerto. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="demoeca" android:host="machine"/>
+            </intent-filter>
+        </activity>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>

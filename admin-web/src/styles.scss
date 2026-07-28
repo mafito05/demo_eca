@@ -1,0 +1,19 @@
+/* Único punto de entrada de estilos del panel (lo referencia `angular.json`).
+ *
+ * El contenido vive en parciales porque en un solo fichero ya se hacía difícil encontrar dónde
+ * estaba definida una clase, y eso es precisamente lo que provoca que alguien la vuelva a
+ * escribir en el `styles:` de su componente. `.split` llegó a estar copiado en siete.
+ *
+ * Sigue sin haber librería de componentes (D-021). Lo que sí hay ahora es un sistema de tokens
+ * completo —espaciado, radios, sombras, tipografía, colores de dato— y las clases que necesita un
+ * dashboard: KPI, medidores, barras y sparklines. Los gráficos son SVG inline y CSS, sin
+ * dependencias (D-041): el panel necesita tres primitivas y dos de ellas son un `width: X%`.
+ *
+ * Se usa `@use` y no `@import`, que está deprecado en Dart Sass.
+ */
+
+@use 'styles/tokens';
+@use 'styles/base';
+@use 'styles/layout';
+@use 'styles/components';
+@use 'styles/utilities';

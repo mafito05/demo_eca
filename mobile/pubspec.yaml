@@ -1,0 +1,65 @@
+name: demoeca_app
+description: Capacitación técnica sobre equipamiento médico. Escanea el QR de la máquina y accede a su formación.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Estado. Riverpod y no Bloc: para una app de este tamaño, los providers con `AsyncValue`
+  # cubren carga/error/dato sin el boilerplate de eventos y estados por pantalla.
+  flutter_riverpod: ^2.5.1
+
+  # Rutas + deep linking. GoRouter es el router oficial y resuelve los App Links / Universal
+  # Links del QR con una sola declaración de ruta.
+  go_router: ^14.2.0
+
+  # HTTP. Dio por sus interceptores: el refresco de token vive en uno solo y ninguna pantalla
+  # sabe nada de autenticación.
+  dio: ^5.5.0
+
+  # Chat del agente. Streaming de tokens en tiempo real.
+  web_socket_channel: ^3.0.1
+
+  # Lector de QR. mobile_scanner usa MLKit en Android y AVFoundation en iOS.
+  mobile_scanner: ^5.2.3
+
+  # Reproductor HLS. video_player delega en ExoPlayer/AVPlayer, que soportan HLS de forma
+  # nativa: no hace falta librería de terceros para el m3u8.
+  video_player: ^2.9.1
+
+  # Tokens JWT en el almacenamiento seguro del sistema (Keystore / Keychain), no en
+  # SharedPreferences, que en Android es un XML legible con root.
+  flutter_secure_storage: ^9.2.2
+
+  # Captura del deep link inicial y de los que llegan con la app ya abierta.
+  app_links: ^6.3.2
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+
+  # JetBrains Mono empaquetada, ~530 KB, para los códigos de equipo. Corrige un defecto real:
+  # había cuatro sitios pidiendo `fontFamily: 'monospace'` sin declarar ninguna fuente, lo que en
+  # Android resuelve por casualidad del sistema y en iOS cae en silencio a la fuente por defecto.
+  # Y un código como URO-LITHO-3000 necesita desambiguar O/0 e I/1/l, porque el técnico lo teclea
+  # a mano cuando el adhesivo del QR está rozado. Único punto de uso: el widget CodeBadge.
+  fonts:
+    - family: DemoEcaMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/JetBrainsMono-Medium.ttf
+          weight: 500

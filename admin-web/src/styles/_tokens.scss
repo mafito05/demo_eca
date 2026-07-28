@@ -1,0 +1,163 @@
+/* Tokens de diseño del panel.
+ *
+ * Sin librería de componentes (D-021): el coste de Angular Material es un lenguaje visual propio
+ * que habría que combatir en cada pantalla. En su lugar, esto: una capa de tokens y un puñado de
+ * clases. La condición para que eso funcione a esta escala es que los tokens estén COMPLETOS —
+ * espaciado, radios, sombras, tipografía y datos, no solo color— porque en cuanto falta uno,
+ * aparece un `1.25rem` suelto en un componente y de ahí a siete copias de `.split` hay un paso.
+ *
+ * TEMA CONMUTABLE (D-043). El tema no puede depender solo de `prefers-color-scheme`, o el toggle
+ * del topbar es imposible. De ahí el mixin y los tres puntos de aplicación:
+ *   1. `:root`              -> claro por defecto
+ *   2. la media query       -> oscuro si el sistema lo pide Y el usuario no forzó claro
+ *   3. `[data-theme=dark]`  -> oscuro forzado por el usuario, gana siempre
+ */
+
+@mixin dark-tokens {
+  --bg: #0b1120;
+  --surface: #111827;
+  --surface-2: #1a2333;
+  --surface-3: #212d40;
+  --border: #2c3a4f;
+  --border-strong: #3d4d66;
+  --text: #e8edf5;
+  --text-dim: #94a3b8;
+
+  --accent: #60a5fa;
+  --accent-strong: #93c5fd;
+  --accent-contrast: #0b1120;
+  --accent-2: #22d3ee;
+
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --danger: #f87171;
+
+  /* En oscuro la sombra no se ve: la elevación se hace con superficie + borde. Estos valores
+   * son mucho más profundos que sus equivalentes claros por eso mismo — solo aportan en
+   * elementos flotantes (menú, drawer), no en tarjetas. */
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-2: 0 8px 24px -4px rgb(0 0 0 / 60%);
+
+  --data-1: #60a5fa;
+  --data-2: #fb923c;
+  --data-3: #34d399;
+}
+
+:root {
+  /* Hace que scrollbars, autofill y controles nativos sigan el tema. Sin esto, en oscuro
+   * aparecen barras de scroll blancas que delatan que el tema es solo pintura. */
+  color-scheme: light dark;
+
+  /* --- Color: azul profundo corporativo ---------------------------------- */
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #eef1f6;
+  --surface-3: #ffffff;
+  --border: #dde3ec;
+  --border-strong: #c3ccda;
+  --text: #131a26;
+  --text-dim: #5a6779;
+
+  --accent: #1e40af;
+  --accent-strong: #1b378f;
+  --accent-contrast: #ffffff;
+  /* Cian de apoyo. Se usa con cuentagotas: segundo plano de un gráfico, acento de un estado
+   * activo. Nunca compitiendo con el primario por la misma jerarquía. */
+  --accent-2: #0891b2;
+
+  --ok: #15803d;
+  --warn: #a16207;
+  --danger: #be123c;
+
+  /* --- Superficies derivadas -------------------------------------------- */
+  --surface-hover: color-mix(in srgb, var(--text) 4%, var(--surface));
+  --accent-soft: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  --accent-line: color-mix(in srgb, var(--accent) 34%, transparent);
+  --ok-soft: color-mix(in srgb, var(--ok) 11%, var(--surface));
+  --ok-line: color-mix(in srgb, var(--ok) 36%, transparent);
+  --warn-soft: color-mix(in srgb, var(--warn) 12%, var(--surface));
+  --warn-line: color-mix(in srgb, var(--warn) 38%, transparent);
+  --danger-soft: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  --danger-line: color-mix(in srgb, var(--danger) 36%, transparent);
+
+  /* --- Espaciado: base 4px, escala no lineal ----------------------------- */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  /* --- Radios ------------------------------------------------------------ */
+  --radius-sm: 6px;
+  --radius: 8px; /* se conserva el nombre: lo usan los componentes existentes */
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* --- Sombras ---------------------------------------------------------- */
+  --shadow-1: 0 1px 2px rgb(16 24 40 / 5%), 0 1px 3px rgb(16 24 40 / 6%);
+  --shadow-2: 0 4px 12px -2px rgb(16 24 40 / 10%), 0 2px 4px rgb(16 24 40 / 6%);
+  --shadow-focus: 0 0 0 3px color-mix(in srgb, var(--accent) 26%, transparent);
+
+  /* --- Tipografía ------------------------------------------------------- */
+  --fs-xs: 0.72rem;
+  --fs-sm: 0.8rem;
+  --fs-base: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.4rem;
+  --fs-stat: 1.75rem;
+  --fs-hero: 3rem;
+  --lh-tight: 1.2;
+  --lh: 1.5;
+  --fw-med: 500;
+  --fw-semi: 600;
+  --fw-bold: 700;
+
+  --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
+
+  /* --- Layout ----------------------------------------------------------- */
+  --sidebar-w: 236px;
+  --sidebar-w-rail: 60px;
+  --topbar-h: 52px;
+  --page-max: 1400px;
+
+  /* --- Movimiento ------------------------------------------------------- */
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* --- Apilado ---------------------------------------------------------- */
+  --z-sticky: 10;
+  --z-drawer: 60;
+  --z-menu: 70;
+
+  /* --- Datos ------------------------------------------------------------
+   * Solo tres categóricos, y NINGUNA visualización del dashboard los usa: el desglose por
+   * proveedor y el top de máquinas van como lista de barras de un solo hue, que es la forma
+   * correcta con una o dos categorías (una tarta de un gajo es un anti-patrón). Están
+   * declarados para que, el día que hagan falta dos series, nadie invente colores a ojo. */
+  --data-1: #1e40af;
+  --data-2: #c2410c;
+  --data-3: #047857;
+  /* Pista de las barras: paso claro del MISMO hue, no un gris. Un gris compite con el texto
+   * atenuado y ensucia; el mismo hue lee como "el resto de este dato". */
+  --data-track: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+  --data-wash: color-mix(in srgb, var(--accent) 10%, transparent);
+  --data-dim: color-mix(in srgb, var(--text-dim) 55%, transparent);
+  --grid: var(--border);
+}
+
+/* El `:not()` es lo que permite que el usuario fuerce el tema claro estando su sistema en
+ * oscuro. Sin él, la media query ganaría y el toggle solo funcionaría en una dirección. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    @include dark-tokens;
+  }
+}
+
+:root[data-theme='dark'] {
+  @include dark-tokens;
+}
