@@ -99,6 +99,14 @@ abstract final class AppSizes {
 
   static const double specialtyTile = 48;
 
+  /// Miniatura del equipo en el catálogo. Mayor que `specialtyTile` porque 48 dp bastan para un
+  /// icono pero se quedan cortos para reconocer una fotografía de un equipo médico. A 320 dp
+  /// siguen quedando ~150 dp de texto, que es lo que el test de nombres largos ya cubre.
+  static const double machineThumb = 56;
+
+  /// Alto del carrusel de la galería en la ficha del equipo.
+  static const double galleryStrip = 132;
+
   static const double statusIcon = 40;
   static const double statusCircle = 96;
 
@@ -132,4 +140,8 @@ abstract final class AppOverlays {
   /// Degradado inferior de los controles del reproductor.
   static const Color videoScrimStrong = Color(0xB3000000);
   static const Color videoScrimNone = Color(0x00000000);
+
+  /// Fondo del visor de galería a pantalla completa. Negro fijo y no `surface`: una foto se
+  /// juzga mejor sobre negro, y aquí no aplica el tema porque no hay más UI alrededor.
+  static const Color mediaBackdrop = Color(0xFF000000);
 }

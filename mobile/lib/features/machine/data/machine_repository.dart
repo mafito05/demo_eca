@@ -1,5 +1,28 @@
 import '../../../core/network/api_client.dart';
 
+/// Una foto de producto: la portada o una de la galería de demostración.
+class MachineImage {
+  const MachineImage({required this.url, this.altText});
+
+  /// URL pública absoluta, ya compuesta por el backend. Incluye un sufijo `?v=` que cambia al
+  /// sustituir la foto — sin él, el `ImageCache` de Flutter seguiría sirviendo la anterior.
+  final String url;
+  final String? altText;
+
+  factory MachineImage.fromJson(Map<String, dynamic> json) => MachineImage(
+        url: json['url'] as String,
+        altText: json['alt_text'] as String?,
+      );
+
+  static List<MachineImage> listFrom(dynamic raw) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(MachineImage.fromJson)
+        .toList(growable: false);
+  }
+}
+
 /// Máquina resuelta a partir del QR escaneado.
 class ResolvedMachine {
   const ResolvedMachine({
@@ -9,6 +32,8 @@ class ResolvedMachine {
     required this.specialty,
     this.description,
     required this.modulesCount,
+    this.coverImageUrl,
+    this.images = const [],
   });
 
   final String machineModelId;
@@ -18,6 +43,12 @@ class ResolvedMachine {
   final String? description;
   final int modulesCount;
 
+  /// Portada del equipo. Null hasta que alguien la sube desde el panel.
+  final String? coverImageUrl;
+
+  /// Galería de demostración. Incluye la portada.
+  final List<MachineImage> images;
+
   factory ResolvedMachine.fromJson(Map<String, dynamic> json) => ResolvedMachine(
         machineModelId: json['machine_model_id'] as String,
         code: json['code'] as String,
@@ -25,6 +56,10 @@ class ResolvedMachine {
         specialty: json['specialty'] as String,
         description: json['description'] as String?,
         modulesCount: json['modules_count'] as int,
+        // Opcionales: un backend anterior a las imágenes sigue funcionando, y los tests que
+        // construyen el objeto a mano no se rompen.
+        coverImageUrl: json['cover_image_url'] as String?,
+        images: MachineImage.listFrom(json['images']),
       );
 }
 
@@ -64,6 +99,7 @@ class MachineSummary {
     this.lessonsCount = 0,
     this.completedLessons = 0,
     this.progressPercent = 0,
+    this.coverImageUrl,
   });
 
   final String id;
@@ -82,6 +118,10 @@ class MachineSummary {
   final int completedLessons;
   final double progressPercent;
 
+  /// Portada del equipo, usada como miniatura en el catálogo. Null = se pinta el icono tonal de
+  /// la especialidad, que es lo que había antes de que existieran las fotos.
+  final String? coverImageUrl;
+
   bool get isStarted => completedLessons > 0;
   bool get isComplete => lessonsCount > 0 && completedLessons >= lessonsCount;
 
@@ -98,6 +138,7 @@ class MachineSummary {
     lessonsCount: (json['lessons_count'] as num?)?.toInt() ?? 0,
     completedLessons: (json['completed_lessons'] as num?)?.toInt() ?? 0,
     progressPercent: (json['progress_percent'] as num?)?.toDouble() ?? 0,
+    coverImageUrl: json['cover_image_url'] as String?,
   );
 }
 
