@@ -37,6 +37,7 @@ from app.modules.lms.models import (
     VideoAsset,
     VideoStatus,
 )
+from app.modules.machines import images as image_service
 from app.modules.machines.models import MachineModel, PublishStatus
 
 router = APIRouter()
@@ -51,6 +52,24 @@ async def _get_or_404(session: AsyncSession, model, entity_id: uuid.UUID, label:
     if entity is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{label} not found.")
     return entity
+
+
+async def _adopt_video(session: AsyncSession, asset: VideoAsset, module_id: uuid.UUID) -> None:
+    """Si el video no tiene equipo, hereda el del módulo al que se engancha.
+
+    Es la vía por la que los assets subidos antes de que existiera la columna se clasifican
+    solos, sin que nadie tenga que ir a reasignarlos a mano.
+
+    Reutilizar un video en otro equipo **se permite** a propósito: en una demo puede querer
+    enseñarse el mismo material en dos rutas, y el panel ya indica de qué equipo es cada video.
+    Bloquearlo con un 409 convertiría un caso legítimo en un error sin salida.
+    """
+    if asset.machine_model_id is not None:
+        return
+    module = await session.get(TrainingModule, module_id)
+    if module is not None:
+        asset.machine_model_id = module.machine_model_id
+        session.add(asset)
 
 
 # =============================================================================
@@ -217,7 +236,8 @@ async def create_lesson(payload: schemas.LessonCreate, session: SessionDep) -> L
             "A `pdf` lesson requires `document_key`.",
         )
     if payload.video_asset_id:
-        await _get_or_404(session, VideoAsset, payload.video_asset_id, "Video")
+        asset = await _get_or_404(session, VideoAsset, payload.video_asset_id, "Video")
+        await _adopt_video(session, asset, payload.training_module_id)
 
     clash = await session.execute(
         select(Lesson).where(
@@ -265,6 +285,10 @@ async def update_lesson(
 
     for key, value in changes.items():
         setattr(lesson, key, value)
+
+    if changes.get("video_asset_id"):
+        asset = await _get_or_404(session, VideoAsset, changes["video_asset_id"], "Video")
+        await _adopt_video(session, asset, lesson.training_module_id)
 
     # La misma coherencia tipo↔contenido que valida el POST, pero sobre el estado RESULTANTE.
     # Un `setattr` ciego permitía dejar una lección de video sin video con un PATCH, y el fallo
@@ -355,11 +379,17 @@ async def authoring_tree(machine_model_id: uuid.UUID, session: SessionDep) -> sc
             )
             video_status = {row.id: row.status for row in rows}
 
+    gallery = (await image_service.load_for_machines(session, [machine.id])).get(machine.id, [])
+
     return schemas.AuthoringTree(
         machine_model_id=machine.id,
         machine_code=machine.code,
         machine_name=machine.name,
         machine_status=machine.status,
+        machine_cover_url=image_service.cover_url(gallery),
+        # Sin filtrar por `is_ready`: esta es la vista de edición, y el admin necesita ver la
+        # imagen que se quedó a medias para poder borrarla.
+        machine_images=[image_service.to_read(image) for image in gallery],
         modules=[
             schemas.ModuleAuthoring(
                 id=module.id,
@@ -408,6 +438,9 @@ async def create_upload_url(
     El fichero NO pasa por FastAPI (D-010): un `.mp4` de varios GB por el API significa
     timeouts, presión de memoria y reintentos que reempiezan desde cero.
     """
+    if payload.machine_model_id is not None:
+        await _get_or_404(session, MachineModel, payload.machine_model_id, "Modelo de máquina")
+
     asset = VideoAsset(
         original_filename=payload.filename,
         # La clave se deriva del id del asset, no del nombre original: evita colisiones y
@@ -415,6 +448,7 @@ async def create_upload_url(
         source_key="",
         size_bytes=payload.size_bytes,
         status=VideoStatus.uploaded,
+        machine_model_id=payload.machine_model_id,
     )
     session.add(asset)
     await session.commit()
@@ -471,7 +505,15 @@ async def process_video(video_asset_id: uuid.UUID, session: SessionDep) -> Video
     dependencies=[Depends(require_backoffice)],
     summary="Video library: every uploaded asset and where it is used",
 )
-async def list_video_assets(session: SessionDep) -> list[schemas.VideoAssetListItem]:
+async def list_video_assets(
+    session: SessionDep,
+    machine_model_id: Annotated[
+        uuid.UUID | None, Query(description="Only videos assigned to this machine.")
+    ] = None,
+    unassigned: Annotated[
+        bool, Query(description="Only videos with no machine assigned yet.")
+    ] = False,
+) -> list[schemas.VideoAssetListItem]:
     """La biblioteca que faltaba, y la causa de un bug reportado tal cual.
 
     El estado del asset recién subido vivía solo en la memoria del navegador: la transcodificación
@@ -479,10 +521,22 @@ async def list_video_assets(session: SessionDep) -> list[schemas.VideoAssetListI
     tanto, el video terminaba en `ready` pero quedaba **huérfano e invisible** — "se queda en cola
     y no pasa nada". Con el listado, el panel enseña todos los assets con su estado real y permite
     adjuntar los listos a una lección en cualquier momento.
+
+    Sin parámetros devuelve todo, como siempre: un cliente antiguo sigue funcionando igual.
     """
-    assets = list(
-        (await session.execute(select(VideoAsset).order_by(VideoAsset.created_at.desc()))).scalars()
-    )
+    if machine_model_id is not None and unassigned:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Use either machine_model_id or unassigned, not both.",
+        )
+
+    stmt = select(VideoAsset).order_by(VideoAsset.created_at.desc())
+    if machine_model_id is not None:
+        stmt = stmt.where(VideoAsset.machine_model_id == machine_model_id)
+    elif unassigned:
+        stmt = stmt.where(VideoAsset.machine_model_id.is_(None))
+
+    assets = list((await session.execute(stmt)).scalars())
 
     usage: dict[uuid.UUID, list[str]] = {}
     if assets:
@@ -494,6 +548,16 @@ async def list_video_assets(session: SessionDep) -> list[schemas.VideoAssetListI
         for row in rows:
             usage.setdefault(row.video_asset_id, []).append(row.title)
 
+    # Los nombres de las máquinas en una sola consulta: la biblioteca pinta "Uro-Litho 3000",
+    # no un UUID, y una consulta por fila sería un N+1 que crece con el catálogo de videos.
+    machine_ids = {a.machine_model_id for a in assets if a.machine_model_id is not None}
+    names: dict[uuid.UUID, str] = {}
+    if machine_ids:
+        rows = await session.execute(
+            select(MachineModel.id, MachineModel.name).where(MachineModel.id.in_(machine_ids))
+        )
+        names = {row.id: row.name for row in rows}
+
     return [
         schemas.VideoAssetListItem(
             id=asset.id,
@@ -504,9 +568,40 @@ async def list_video_assets(session: SessionDep) -> list[schemas.VideoAssetListI
             attempts=asset.attempts,
             created_at=asset.created_at,
             used_by_lessons=usage.get(asset.id, []),
+            machine_model_id=asset.machine_model_id,
+            machine_name=names.get(asset.machine_model_id) if asset.machine_model_id else None,
         )
         for asset in assets
     ]
+
+
+@router.patch(
+    "/videos/{video_asset_id}",
+    response_model=schemas.VideoAssetRead,
+    dependencies=[Depends(require_backoffice)],
+    summary="Reassign a video to another machine",
+)
+async def update_video_asset(
+    video_asset_id: uuid.UUID, payload: schemas.VideoAssetUpdate, session: SessionDep
+) -> VideoAsset:
+    """Vía de migración de los videos subidos antes de que existiera la columna de equipo.
+
+    Sin esto, un asset huérfano solo se podría clasificar enganchándolo a una lección — y
+    justamente los huérfanos son los que aún no cuelgan de ninguna.
+    """
+    asset = await _get_or_404(session, VideoAsset, video_asset_id, "Video")
+    changes = payload.model_dump(exclude_unset=True)
+
+    new_machine = changes.get("machine_model_id")
+    if new_machine is not None:
+        await _get_or_404(session, MachineModel, new_machine, "Modelo de máquina")
+
+    for key, value in changes.items():
+        setattr(asset, key, value)
+    session.add(asset)
+    await session.commit()
+    await session.refresh(asset)
+    return asset
 
 
 @router.get(

@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.lms.models import LessonContentType, ProgressStatus, VideoStatus
 from app.modules.machines.models import PublishStatus
+from app.modules.machines.schemas import MachineImageRead
 
 
 # =============================================================================
@@ -130,6 +131,12 @@ class AuthoringTree(BaseModel):
     machine_status: PublishStatus
     modules: list[ModuleAuthoring]
 
+    # La galería viaja con el árbol para que el panel pinte la pantalla de edición completa
+    # —módulos, lecciones e imágenes— con una sola llamada, que es la razón de ser de este
+    # endpoint.
+    machine_cover_url: str | None = None
+    machine_images: list[MachineImageRead] = Field(default_factory=list)
+
 
 # =============================================================================
 #  Pipeline de video
@@ -137,6 +144,9 @@ class AuthoringTree(BaseModel):
 class VideoUploadRequest(BaseModel):
     filename: str = Field(max_length=255)
     size_bytes: int | None = Field(default=None, ge=1)
+    # Equipo al que pertenece el video. Opcional para no romper a un cliente antiguo, pero el
+    # panel siempre lo manda: un video sin equipo acaba invisible en la biblioteca (D-055).
+    machine_model_id: uuid.UUID | None = None
 
 
 class VideoUploadTicket(BaseModel):
@@ -158,6 +168,7 @@ class VideoAssetRead(BaseModel):
     renditions: list[dict]
     error_message: str | None
     attempts: int
+    machine_model_id: uuid.UUID | None = None
 
 
 class VideoAssetListItem(BaseModel):
@@ -175,6 +186,23 @@ class VideoAssetListItem(BaseModel):
     attempts: int
     created_at: datetime
     used_by_lessons: list[str]
+
+    machine_model_id: uuid.UUID | None = None
+    # El nombre resuelto: la biblioteca tiene que pintar "Uro-Litho 3000", no un UUID.
+    machine_name: str | None = None
+
+
+class VideoAssetUpdate(BaseModel):
+    """Reasignación de equipo desde la biblioteca.
+
+    `exclude_unset` en el router es lo que distingue "no toques el equipo" (campo ausente) de
+    "déjalo sin asignar" (campo presente con null). Sin esa distinción no habría forma de
+    desasignar un video una vez asignado.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    machine_model_id: uuid.UUID | None = None
 
 
 # =============================================================================

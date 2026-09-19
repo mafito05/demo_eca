@@ -58,8 +58,18 @@ class Settings(BaseSettings):
     MINIO_REGION: str = "us-east-1"
     MINIO_BUCKET_VIDEO: str = "demoeca-video"
     MINIO_BUCKET_DOCS: str = "demoeca-docs"
+    # Bucket con lectura anónima (`mc anonymous set download`). SOLO para fotos de producto:
+    # cualquiera con la URL las ve, sin autenticarse. Manuales, certificados y cualquier cosa
+    # con datos de paciente van a MINIO_BUCKET_DOCS, que es privado y se sirve firmado.
     MINIO_BUCKET_PUBLIC: str = "demoeca-public"
     MINIO_PRESIGN_TTL_SECONDS: int = 3600
+
+    # --- Imágenes de producto ------------------------------------------------
+    # El PUT va del navegador a MinIO directamente (D-010), así que el backend no ve los bytes:
+    # este tope se comprueba dos veces, sobre el tamaño DECLARADO al pedir la URL y sobre el
+    # real con `stat_object` al confirmar. Solo el segundo es fiable.
+    MAX_IMAGE_UPLOAD_BYTES: int = 5 * 1024 * 1024
+    MAX_IMAGES_PER_MACHINE: int = 12
 
     # --- Seguridad -----------------------------------------------------------
     JWT_SECRET_KEY: str = "cambiame-en-produccion"

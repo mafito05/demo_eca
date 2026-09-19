@@ -65,6 +65,17 @@ class VideoAsset(TimestampedModel, table=True):
 
     __tablename__ = "video_assets"
 
+    # Equipo al que pertenece el video, asignado al subirlo. Nullable a propósito: los assets
+    # anteriores a esta columna quedan "sin asignar" y se reasignan desde la biblioteca.
+    #
+    # La cadena VideoAsset <- Lesson -> TrainingModule -> MachineModel ya existía, pero solo
+    # clasifica los videos que YA cuelgan de una lección. Los recién subidos no cuelgan de nada,
+    # y son precisamente los que se pierden de vista (D-055): sin esta columna, la biblioteca no
+    # puede agruparlos ni filtrarlos.
+    machine_model_id: uuid.UUID | None = Field(
+        default=None, foreign_key="machine_models.id", index=True
+    )
+
     original_filename: str = Field(sa_type=String(255), nullable=False)
     # Clave del .mp4 original subido con presigned URL.
     source_key: str = Field(sa_type=String(512), nullable=False)

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import secrets
+import uuid
 from enum import StrEnum
 
-from sqlalchemy import String, Text
+from sqlalchemy import String, Text, UniqueConstraint
 from sqlmodel import Field
 
 from app.core.base import TimestampedModel, enum_type
@@ -39,6 +40,59 @@ class PublishStatus(StrEnum):
     archived = "archived"
 
 
+class MachineImageRole(StrEnum):
+    """La portada es una imagen más, no un mecanismo aparte.
+
+    Con un campo `cover_image_key` en la máquina y una tabla para el resto habría dos formas de
+    guardar una imagen, dos de construir su URL y dos de borrarla — y "promociona esta foto a
+    portada" sería copiar una clave entre sitios en lugar de cambiar una etiqueta.
+    """
+
+    cover = "cover"
+    gallery = "gallery"
+
+
+class MachineImage(TimestampedModel, table=True):
+    """Foto de un equipo: la portada del catálogo o una de la galería de demostración.
+
+    Tabla propia y no una columna JSON en `machine_models`, por dos motivos concretos:
+
+    1. Cada imagen necesita identidad para poder borrarla o reordenarla sola. Con una lista
+       dentro de una fila, borrar la tercera obliga a leer-modificar-escribir toda la lista, y
+       dos pestañas del panel abiertas a la vez se pisan.
+    2. Un JSON editado *en sitio* (`imagenes[0]["alt"] = ...`) no marca la fila como sucia en
+       SQLAlchemy y el cambio se pierde sin error. `VideoAsset.renditions` se libra de eso solo
+       porque el worker reasigna la lista entera de una vez.
+    """
+
+    __tablename__ = "machine_images"
+    __table_args__ = (
+        UniqueConstraint("machine_model_id", "order_index", name="uq_machine_image_order"),
+    )
+
+    machine_model_id: uuid.UUID = Field(foreign_key="machine_models.id", index=True, nullable=False)
+
+    # Clave del objeto en el bucket PÚBLICO, no una URL: el host cambia entre entornos y la URL
+    # se compone al leer con `storage.public_url` (D-032).
+    object_key: str = Field(default="", sa_type=String(512), nullable=False)
+    original_filename: str = Field(sa_type=String(255), nullable=False)
+    content_type: str = Field(sa_type=String(64), nullable=False)
+    size_bytes: int | None = Field(default=None)
+    alt_text: str | None = Field(default=None, sa_type=String(255))
+    order_index: int = Field(default=0, nullable=False)
+
+    role: MachineImageRole = Field(
+        default=MachineImageRole.gallery,
+        sa_type=enum_type(MachineImageRole, 16),
+        nullable=False,
+    )
+
+    # False hasta que se confirma que el PUT prefirmado llegó a MinIO. La fila nace antes que
+    # el objeto —igual que `VideoAsset` nace con `source_key=""`— y una imagen a medio subir no
+    # se le enseña a nadie: sería un hueco roto en el catálogo.
+    is_ready: bool = Field(default=False, nullable=False)
+
+
 class MachineModel(TimestampedModel, table=True):
     """Un **modelo** de equipo (no una unidad física).
 
@@ -68,8 +122,9 @@ class MachineModel(TimestampedModel, table=True):
         nullable=False,
     )
 
-    # Claves de objeto en MinIO (no URLs: las URLs se firman al vuelo y caducan).
-    cover_image_key: str | None = Field(default=None, sa_type=String(512))
+    # La portada vive en `MachineImage` con `role=cover`, no aquí: ver el docstring de
+    # `MachineImageRole`. La antigua columna `cover_image_key` se eliminó en la migración de
+    # imágenes de producto; nunca llegó a exponerse en ningún endpoint.
 
     status: PublishStatus = Field(
         default=PublishStatus.draft,

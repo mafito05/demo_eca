@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 from datetime import timedelta
 from functools import lru_cache
+from urllib.parse import quote
 
 from minio import Minio
 
@@ -66,6 +67,30 @@ def presign_get(bucket: str, object_key: str, ttl_seconds: int | None = None) ->
     ttl = ttl_seconds or settings.MINIO_PRESIGN_TTL_SECONDS
     return get_presign_client().presigned_get_object(
         bucket, object_key, expires=timedelta(seconds=ttl)
+    )
+
+
+def public_url(object_key: str, bucket: str | None = None) -> str:
+    """URL directa a un objeto del bucket público. NO va firmada y NO caduca.
+
+    `minio-init` crea `demoeca-public` con `mc anonymous set download`, que concede
+    `s3:GetObject` anónimo — pero **no** `ListBucket`: las claves (UUIDs) no son enumerables.
+
+    Por qué aquí no se firma, a diferencia del video (D-011): una URL prefirmada caduca a la
+    hora, así que el `<img>` de un catálogo abierto se rompería solo, sin que nadie tocara nada.
+    Ese es justo el tipo de fallo que hace parecer rota la aplicación. Una foto de producto no
+    necesita protección; un manual sí, y por eso los manuales siguen en `demoeca-docs` con
+    `presign_get`.
+
+    Se compone contra `minio_public_endpoint` por el mismo motivo que `get_presign_client`
+    (D-018, D-032): esta URL la resuelve un navegador o un móvil, no el backend, y para el
+    backend el host es `minio:9000`.
+    """
+    scheme = "https" if settings.MINIO_SECURE else "http"
+    host = settings.minio_public_endpoint
+    # `safe="/"` conserva la jerarquía de la clave y escapa el resto (espacios, acentos).
+    return (
+        f"{scheme}://{host}/{bucket or settings.MINIO_BUCKET_PUBLIC}/{quote(object_key, safe='/')}"
     )
 
 

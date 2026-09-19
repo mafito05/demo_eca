@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from minio.error import S3Error
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import storage
+from app.core.config import settings
 from app.core.deps import CurrentUser, SessionDep, require_backoffice
-from app.modules.machines import qr_service
-from app.modules.machines.models import MachineModel, PublishStatus, Specialty
+from app.modules.machines import images as image_service
+from app.modules.machines import qr_service, schemas
+from app.modules.machines.models import (
+    MachineImage,
+    MachineImageRole,
+    MachineModel,
+    PublishStatus,
+    Specialty,
+)
 
 router = APIRouter()
 
@@ -49,6 +60,15 @@ class MachineRead(BaseModel):
         "'not started', which is a true statement, so it is not nullable.",
     )
 
+    # Ambos con default: `MachineRead` se construye con `**machine.model_dump()` en varios
+    # sitios, y `model_dump()` de la entidad no incluye las imágenes (viven en otra tabla).
+    cover_image_url: str | None = Field(
+        default=None, description="Public URL of the cover image, or null if none is set."
+    )
+    images: list[schemas.MachineImageRead] = Field(
+        default_factory=list, description="Gallery, ordered. Includes the cover."
+    )
+
 
 class MachineUpdate(BaseModel):
     """Todos opcionales: el panel manda solo lo que cambió.
@@ -83,6 +103,11 @@ class MachineResolved(BaseModel):
     description: str | None
     modules_count: int
 
+    # Lo consume la cabecera del equipo en la app: hasta ahora se pintaba un degradado por
+    # especialidad precisamente porque no había fotografía que enseñar.
+    cover_image_url: str | None = None
+    images: list[schemas.MachineImageRead] = Field(default_factory=list)
+
 
 @router.post(
     "",
@@ -108,9 +133,9 @@ async def create_machine(payload: MachineCreate, session: SessionDep) -> Machine
 async def list_machines(session: SessionDep, user: CurrentUser) -> list[MachineRead]:
     """Catálogo con el progreso del usuario que pregunta.
 
-    El progreso viene aquí, agregado en **dos consultas fijas**, y no en una llamada por máquina:
-    la app pinta el porcentaje en cada tarjeta del catálogo, así que resolverlo con
-    `/lms/machines/{id}/path` sería un N+1 que crece con el catálogo.
+    El progreso y las imágenes vienen aquí, agregados en **tres consultas fijas**, y no en una
+    llamada por máquina: la app pinta el porcentaje y la miniatura en cada tarjeta del catálogo,
+    así que resolverlo con `/lms/machines/{id}/path` sería un N+1 que crece con el catálogo.
     """
     from app.modules.lms.models import Lesson, ProgressStatus, TrainingModule, UserLessonProgress
 
@@ -152,6 +177,8 @@ async def list_machines(session: SessionDep, user: CurrentUser) -> list[MachineR
     )
     done = {row.machine_id: row.done for row in await session.execute(completed_lessons)}
 
+    by_machine = await image_service.load_for_machines(session, [m.id for m in machines])
+
     return [
         MachineRead(
             **machine.model_dump(),
@@ -162,6 +189,8 @@ async def list_machines(session: SessionDep, user: CurrentUser) -> list[MachineR
                 if totals.get(machine.id)
                 else 0.0
             ),
+            cover_image_url=image_service.cover_url(by_machine.get(machine.id, [])),
+            images=image_service.to_reads(by_machine.get(machine.id, [])),
         )
         for machine in machines
     ]
@@ -194,6 +223,8 @@ async def resolve_qr(qr_token: str, session: SessionDep, user: CurrentUser) -> M
         select(TrainingModule).where(TrainingModule.machine_model_id == machine.id)
     )
 
+    gallery = (await image_service.load_for_machines(session, [machine.id])).get(machine.id, [])
+
     return MachineResolved(
         machine_model_id=machine.id,
         code=machine.code,
@@ -201,6 +232,8 @@ async def resolve_qr(qr_token: str, session: SessionDep, user: CurrentUser) -> M
         specialty=machine.specialty,
         description=machine.description,
         modules_count=len(list(modules.scalars())),
+        cover_image_url=image_service.cover_url(gallery),
+        images=image_service.to_reads(gallery),
     )
 
 
@@ -233,7 +266,12 @@ async def update_machine(
 
     # Misma forma que devuelve el listado, con el progreso a cero: quien edita es backoffice y
     # el dato de progreso es del usuario que consulta, no de la máquina.
-    return MachineRead(**machine.model_dump())
+    gallery = (await image_service.load_for_machines(session, [machine.id])).get(machine.id, [])
+    return MachineRead(
+        **machine.model_dump(),
+        cover_image_url=image_service.cover_url(gallery),
+        images=image_service.to_reads(gallery),
+    )
 
 
 async def _get_machine(session: AsyncSession, machine_id: uuid.UUID) -> MachineModel:
@@ -241,6 +279,284 @@ async def _get_machine(session: AsyncSession, machine_id: uuid.UUID) -> MachineM
     if machine is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Machine not found.")
     return machine
+
+
+# =============================================================================
+#  Imágenes de producto (D-058)
+# =============================================================================
+async def _get_image(
+    session: AsyncSession, machine_id: uuid.UUID, image_id: uuid.UUID
+) -> MachineImage:
+    """Carga la imagen comprobando que pertenece a esa máquina.
+
+    La comprobación de pertenencia no es ceremonia: sin ella, `/machines/A/images/{id_de_B}`
+    dejaría borrar o repromocionar imágenes de otra máquina conociendo solo su id.
+    """
+    image = await session.get(MachineImage, image_id)
+    if image is None or image.machine_model_id != machine_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found for this machine.")
+    return image
+
+
+async def _demote_other_covers(
+    session: AsyncSession, machine_id: uuid.UUID, keep_id: uuid.UUID
+) -> None:
+    """Baja a galería cualquier otra portada. Va en la MISMA transacción que la promoción, o el
+    índice único parcial `uq_machine_cover` rechazaría el commit."""
+    others = (
+        (
+            await session.execute(
+                select(MachineImage).where(
+                    MachineImage.machine_model_id == machine_id,
+                    MachineImage.role == MachineImageRole.cover,
+                    MachineImage.id != keep_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for other in others:
+        other.role = MachineImageRole.gallery
+        session.add(other)
+
+
+@router.post(
+    "/{machine_id}/images/upload-url",
+    response_model=schemas.MachineImageUploadTicket,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_backoffice)],
+    summary="Presigned URL to upload a product image",
+)
+async def create_image_upload_url(
+    machine_id: uuid.UUID, payload: schemas.MachineImageUploadRequest, session: SessionDep
+) -> schemas.MachineImageUploadTicket:
+    """Primera de las dos fases, calcada del flujo de video (D-010).
+
+    Los bytes van del navegador a MinIO sin pasar por aquí, así que lo que se valida en este
+    punto es solo lo que el cliente *declara*. La comprobación de verdad está en `/confirm`.
+    """
+    machine = await _get_machine(session, machine_id)
+
+    content_type = image_service.normalise_content_type(payload.content_type)
+    if not image_service.is_allowed_content_type(content_type):
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"Unsupported image type '{payload.content_type}'. "
+            f"Allowed: {', '.join(sorted(image_service.ALLOWED_IMAGE_CONTENT_TYPES))}.",
+        )
+
+    if payload.size_bytes and payload.size_bytes > settings.MAX_IMAGE_UPLOAD_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"The image exceeds the {settings.MAX_IMAGE_UPLOAD_BYTES // 1024 // 1024} MB limit.",
+        )
+
+    count = (
+        await session.execute(
+            select(func.count(MachineImage.id)).where(MachineImage.machine_model_id == machine.id)
+        )
+    ).scalar_one()
+    if count >= settings.MAX_IMAGES_PER_MACHINE:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"This machine already has {count} images "
+            f"(limit {settings.MAX_IMAGES_PER_MACHINE}). Delete one first.",
+        )
+
+    # El `order_index` lo asigna el servidor: el panel no debería tener que adivinar una
+    # posición libre, y así el alta nunca puede chocar con `uq_machine_image_order`.
+    highest = (
+        await session.execute(
+            select(func.max(MachineImage.order_index)).where(
+                MachineImage.machine_model_id == machine.id
+            )
+        )
+    ).scalar()
+
+    # Dos commits, igual que el video: la clave del objeto lleva el id de la fila, así que la
+    # fila tiene que existir antes de poder derivarla.
+    image = MachineImage(
+        machine_model_id=machine.id,
+        original_filename=payload.filename,
+        content_type=content_type,
+        size_bytes=payload.size_bytes,
+        alt_text=payload.alt_text,
+        role=payload.role,
+        order_index=0 if highest is None else highest + 1,
+        is_ready=False,
+    )
+    session.add(image)
+    await session.commit()
+    await session.refresh(image)
+
+    image.object_key = image_service.object_key_for(machine.id, image.id, content_type)
+    session.add(image)
+    await session.commit()
+    await session.refresh(image)
+
+    return schemas.MachineImageUploadTicket(
+        image_id=image.id,
+        upload_url=storage.presign_put(settings.MINIO_BUCKET_PUBLIC, image.object_key),
+        object_key=image.object_key,
+        public_url=image_service.public_url_for(image),
+        expires_in_seconds=settings.MINIO_PRESIGN_TTL_SECONDS,
+        required_content_type=content_type,
+    )
+
+
+@router.post(
+    "/{machine_id}/images/{image_id}/confirm",
+    response_model=schemas.MachineImageRead,
+    dependencies=[Depends(require_backoffice)],
+    summary="Confirm the upload finished and publish the image",
+)
+async def confirm_image(
+    machine_id: uuid.UUID, image_id: uuid.UUID, session: SessionDep
+) -> schemas.MachineImageRead:
+    """Segunda fase, y **el único punto donde la validación es fiable**.
+
+    `stat_object` devuelve el tamaño y el `Content-Type` que MinIO almacenó de verdad. Todo lo
+    comprobado al pedir la URL era una declaración del cliente: una URL prefirmada no impone
+    límite de tamaño, así que sin este paso alguien podría dejar un objeto enorme en un bucket
+    público. Si no cuadra, se borra el objeto y la fila.
+    """
+    await _get_machine(session, machine_id)
+    image = await _get_image(session, machine_id, image_id)
+
+    try:
+        stat = storage.get_client().stat_object(settings.MINIO_BUCKET_PUBLIC, image.object_key)
+    except S3Error as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "The file is not in storage. Did the upload finish?"
+        ) from exc
+
+    async def _discard() -> None:
+        # `suppress`: si el objeto ya no está, el resultado que buscamos (que no quede) ya se
+        # cumple. Lo que no puede fallar es el borrado de la fila.
+        with contextlib.suppress(S3Error):
+            storage.get_client().remove_object(settings.MINIO_BUCKET_PUBLIC, image.object_key)
+        await session.delete(image)
+        await session.commit()
+
+    stored_type = image_service.normalise_content_type(stat.content_type or "")
+    if not image_service.is_allowed_content_type(stored_type):
+        await _discard()
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"The stored file is '{stored_type}', which is not an allowed image type.",
+        )
+
+    if stat.size and stat.size > settings.MAX_IMAGE_UPLOAD_BYTES:
+        await _discard()
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"The uploaded image is {stat.size} bytes, over the "
+            f"{settings.MAX_IMAGE_UPLOAD_BYTES} byte limit.",
+        )
+
+    image.size_bytes = stat.size
+    image.content_type = stored_type
+    image.is_ready = True
+    if image.role is MachineImageRole.cover:
+        await _demote_other_covers(session, machine_id, image.id)
+    session.add(image)
+    await session.commit()
+    await session.refresh(image)
+
+    return image_service.to_read(image)
+
+
+@router.get(
+    "/{machine_id}/images",
+    response_model=list[schemas.MachineImageRead],
+    summary="Images of a machine, ordered",
+)
+async def list_machine_images(
+    machine_id: uuid.UUID, session: SessionDep, user: CurrentUser
+) -> list[schemas.MachineImageRead]:
+    """El trainee ve solo las confirmadas; el backoffice ve también las que se quedaron a medias,
+    porque si no no tendría forma de encontrarlas para borrarlas."""
+    await _get_machine(session, machine_id)
+    gallery = (await image_service.load_for_machines(session, [machine_id])).get(machine_id, [])
+
+    if user.role.is_backoffice:
+        return [image_service.to_read(image) for image in gallery]
+    return image_service.to_reads(gallery)
+
+
+@router.patch(
+    "/{machine_id}/images/{image_id}",
+    response_model=schemas.MachineImageRead,
+    dependencies=[Depends(require_backoffice)],
+    summary="Reorder an image, edit its alt text or make it the cover",
+)
+async def update_machine_image(
+    machine_id: uuid.UUID,
+    image_id: uuid.UUID,
+    payload: schemas.MachineImageUpdate,
+    session: SessionDep,
+) -> schemas.MachineImageRead:
+    await _get_machine(session, machine_id)
+    image = await _get_image(session, machine_id, image_id)
+    changes = payload.model_dump(exclude_unset=True)
+
+    new_index = changes.get("order_index")
+    if new_index is not None and new_index != image.order_index:
+        # Pre-check para devolver un 409 legible en lugar de dejar que estalle la restricción
+        # única como un 500. Mismo criterio que los módulos y lecciones del LMS.
+        clash = (
+            (
+                await session.execute(
+                    select(MachineImage).where(
+                        MachineImage.machine_model_id == machine_id,
+                        MachineImage.order_index == new_index,
+                        MachineImage.id != image.id,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if clash is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"An image already exists at position {new_index} for this machine.",
+            )
+
+    for key, value in changes.items():
+        setattr(image, key, value)
+
+    if changes.get("role") == MachineImageRole.cover:
+        await _demote_other_covers(session, machine_id, image.id)
+
+    session.add(image)
+    await session.commit()
+    await session.refresh(image)
+    return image_service.to_read(image)
+
+
+@router.delete(
+    "/{machine_id}/images/{image_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_backoffice)],
+    summary="Delete an image",
+)
+async def delete_machine_image(
+    machine_id: uuid.UUID, image_id: uuid.UUID, session: SessionDep
+) -> Response:
+    await _get_machine(session, machine_id)
+    image = await _get_image(session, machine_id, image_id)
+
+    # Primero el objeto y luego la fila, tolerando que el objeto ya no esté: si se borra la fila
+    # primero y falla el objeto, queda basura en MinIO que nadie sabe ya a qué correspondía.
+    if image.object_key:
+        with contextlib.suppress(S3Error):
+            storage.get_client().remove_object(settings.MINIO_BUCKET_PUBLIC, image.object_key)
+
+    await session.delete(image)
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(

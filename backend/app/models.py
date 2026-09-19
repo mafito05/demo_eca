@@ -50,7 +50,13 @@ from app.modules.lms.models import (
     VideoAsset,
     VideoStatus,
 )
-from app.modules.machines.models import MachineModel, PublishStatus, Specialty
+from app.modules.machines.models import (
+    MachineImage,
+    MachineImageRole,
+    MachineModel,
+    PublishStatus,
+    Specialty,
+)
 
 # Agrupado por módulo y no alfabéticamente a propósito: así se lee de un vistazo qué entidades
 # aporta cada feature, que es justo la información útil en este fichero. De ahí el `noqa`.
@@ -59,6 +65,8 @@ __all__ = [  # noqa: RUF022
     "User",
     "UserRole",
     # machines
+    "MachineImage",
+    "MachineImageRole",
     "MachineModel",
     "PublishStatus",
     "Specialty",
