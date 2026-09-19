@@ -18,15 +18,24 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const PANEL = 'http://localhost:4200';
+// Por defecto el dev-server; con PANEL_URL se apunta al panel ya desplegado (Nginx en el :80).
+const PANEL = process.env.PANEL_URL ?? 'http://localhost:4200';
 const PORT = 9333;
 const OUT_DIR = process.env.CAPTURE_DIR ?? join(process.cwd(), 'admin-web', '.captures');
 const ADMIN = { email: 'superadmin@demoeca.example.com', password: 'Demo1234!' };
 
-const EDGE_PATHS = [
+// Cualquier navegador de la familia Chromium sirve: solo se le habla por CDP. Se listan las
+// rutas de Windows (donde se desarrolló) y las de Linux (donde se despliega); BROWSER_PATH tiene
+// prioridad para no tener que tocar el script si está instalado en otro sitio.
+const BROWSER_PATHS = [
+  process.env.BROWSER_PATH,
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-];
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/google-chrome',
+  '/usr/bin/microsoft-edge',
+].filter(Boolean);
 
 // Las rutas del Agent Builder cambiaron al consolidarse en pestañas (D-042): `config` pasó a
 // `agents` y `credentials` a `providers`. Hay redirects de compatibilidad en el router, así que el
@@ -94,9 +103,9 @@ class Cdp {
   }
 }
 
-const edge = EDGE_PATHS.find(existsSync);
-if (!edge) {
-  console.error('No se encontró Microsoft Edge.');
+const browserPath = BROWSER_PATHS.find(existsSync);
+if (!browserPath) {
+  console.error('No se encontró ningún navegador Chromium. Indica la ruta con BROWSER_PATH.');
   process.exit(1);
 }
 mkdirSync(OUT_DIR, { recursive: true });
@@ -115,7 +124,7 @@ if (!login.ok) {
 const tokens = await login.json();
 
 const browser = spawn(
-  edge,
+  browserPath,
   [
     '--headless=new',
     '--disable-gpu',
@@ -124,6 +133,9 @@ const browser = spawn(
     '--remote-allow-origins=*',
     '--window-size=1600,1000',
     '--user-data-dir=' + join(OUT_DIR, 'profile'),
+    // Chromium se niega a arrancar como root si no se le quita el sandbox, que es la situación
+    // habitual en un servidor o dentro de un contenedor. En Windows es un flag inocuo.
+    '--no-sandbox',
     'about:blank',
   ],
   { stdio: 'ignore' },

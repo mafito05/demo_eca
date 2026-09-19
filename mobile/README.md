@@ -46,12 +46,23 @@ flutter run --dart-define=API_BASE_URL=http://localhost:8000
 # BlueStacks, o un teléfono en la misma red: hace falta la IP real del host.
 # `10.0.2.2` NO funciona ahí — es un alias exclusivo del emulador de Google.
 flutter run --dart-define=API_BASE_URL=http://192.168.18.33:8000
+
+# Contra el servidor de demo desplegado, desde cualquier red con Internet.
+flutter run --dart-define=API_BASE_URL=http://72.60.112.93:8000
 ```
 
 **Para BlueStacks o un dispositivo físico, ejecuta antes** `.\tools\setup-lan-access.ps1` en la
 raíz del repositorio: detecta la IP, ajusta `MINIO_PUBLIC_ENDPOINT` (sin eso el video no carga,
 porque las URLs prefirmadas se firman contra un host concreto) y recrea los contenedores. Guía
 completa en [docs/bluestacks.md](docs/bluestacks.md).
+
+En el servidor de demo eso ya está hecho (`tools/setup-server-access.sh`), así que un teléfono
+con datos móviles apunta directamente a `http://72.60.112.93:8000` sin más preparación. El APK
+compilado contra ese servidor se genera con:
+
+```bash
+./tools/build-apk.sh 72.60.112.93     # desde la raíz del repo, en el servidor
+```
 
 La pantalla de entrada muestra en depuración la URL con la que se compiló y un botón **Comprobar
 conexión** que diagnostica el fallo de red concreto. Es lo primero que hay que mirar si la app "no

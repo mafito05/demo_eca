@@ -21,6 +21,14 @@ video se reproduce en HLS con URLs firmadas, el progreso se registra, y el agent
 sobre el manual del equipo citando la sección exacta — tanto desde el API como desde el panel
 en un navegador real.
 
+**Desplegado en un VPS público** (`72.60.112.93`, Ubuntu 26.04) y revalidado ahí contra la IP
+pública: `51/51` del smoke test (2 omitidos por falta de API key), `29/29` de pytest, `36/36` del
+pipeline de video, `19/19` del flujo móvil, `18/18` del panel servido por Nginx y `4/4` del
+guardrail. Las 8 pantallas capturadas en un Chromium headless sin un solo error de consola. El
+APK se compila con la IP embebida y se comprueba que quedó dentro del binario. Lo que sigue sin
+verificarse es lo mismo que antes: la app **nunca se ha ejecutado en un dispositivo real**
+(D-028).
+
 | Componente | Estado |
 |---|---|
 | Infraestructura Docker (Postgres+pgvector, Redis, MinIO, worker) | ✅ Levantado y verificado |
@@ -125,7 +133,14 @@ Node más nueva que la instalada en la máquina de desarrollo.
 .\tools\build-apk.ps1
 ```
 
-**Usa `build-apk.ps1` y no `docker run` a mano.** Monta tres volúmenes y los tres importan: el caché
+En Linux (y en el servidor de demo) los equivalentes son los mismos pasos en bash:
+
+```bash
+./tools/setup-server-access.sh          # detecta la IP publica; acepta una IP como argumento
+./tools/build-apk.sh 72.60.112.93       # embebe esa IP en el APK y verifica que quedo dentro
+```
+
+**Usa `build-apk.ps1`/`build-apk.sh` y no `docker run` a mano.** Montan tres volúmenes y los tres importan: el caché
 de pub, el de Gradle, y el que guarda el `debug.keystore` — sin este último cada build va firmado con
 una clave distinta y Android no deja instalarlo sobre el anterior (D-037).
 
@@ -148,6 +163,13 @@ python backend/scripts/simulate_mobile_client.py http://TU_IP:8000
 Recorre la misma secuencia que la app (bypass → QR → ruta → lección → HLS → progreso → chat) y
 comprueba explícitamente que los segmentos de video redirigen al host correcto — el fallo más
 probable al pasar de `localhost` a un dispositivo.
+
+Con el stack en un servidor, el script vale igual desde dentro del contenedor, porque la IP
+pública se resuelve igual dentro que fuera (que es justo lo que no ocurría con `localhost`):
+
+```bash
+docker compose exec backend python -m scripts.simulate_mobile_client http://72.60.112.93:8000
+```
 
 Sin Flutter instalado, todo se verifica con la imagen oficial en Docker (es como se hizo):
 
@@ -185,8 +207,66 @@ docker compose exec backend alembic upgrade head
 docker compose exec backend python -m scripts.seed_demo
 ```
 
+- Panel de administración: http://localhost
 - API + Swagger: http://localhost:8000/docs
 - Consola de MinIO: http://localhost:9001
+
+El servicio `web` del compose compila el panel Angular y lo sirve con Nginx en el puerto 80,
+haciendo además de proxy de `/api` hacia el backend — el mismo papel que `proxy.conf.json` en
+desarrollo. Así el navegador ve un único origen: ni preflight de CORS, ni una URL de API
+embebida en el bundle que obligue a recompilar al cambiar de host. Para desarrollo con recarga
+en caliente se sigue usando `npm start` en `admin-web/` (puerto 4200).
+
+## Despliegue en un servidor
+
+Verificado en un VPS Ubuntu 26.04 con IP pública `72.60.112.93`. Desde el repo recién clonado:
+
+```bash
+cp .env.example .env      # y pegar las dos claves generadas (ver "Arranque")
+./tools/setup-server-access.sh          # detecta la IP publica y parchea .env
+docker compose up -d --build
+docker compose exec backend alembic upgrade head
+docker compose exec backend python -m scripts.seed_demo
+docker compose exec backend python -m scripts.bootstrap_ai   # credencial + vectorizado
+```
+
+Y el APK, que embebe la IP en tiempo de compilación:
+
+```bash
+./tools/build-apk.sh 72.60.112.93
+```
+
+Queda servido en `http://72.60.112.93/download/app-debug.apk` — se abre esa URL desde el
+navegador del propio teléfono y se instala, sin `scp` ni cable. Lo monta el servicio `web` como
+volumen de solo lectura; quitando ese volumen del compose la ruta deja de existir.
+
+`setup-server-access.sh` es el equivalente en Linux de `setup-lan-access.ps1` y resuelve el
+mismo problema: `MINIO_PUBLIC_ENDPOINT` tiene que ser el host **público**, porque la firma SigV4
+de las URLs prefirmadas cubre la cabecera `Host` y no se puede reescribir después. Firmadas
+contra `localhost`, el móvil intentaría conectarse a sí mismo y el video no cargaría.
+
+### Puertos expuestos
+
+| Puerto | Servicio | Alcance |
+|---|---|---|
+| 80 | Panel + proxy `/api` (Nginx) | Público |
+| 8000 | API directa (Swagger, y lo que consume la app móvil) | Público |
+| 9000 | MinIO S3 | **Público a la fuerza**: las URLs prefirmadas las abre el propio dispositivo |
+| 9001 | Consola de MinIO | Solo loopback |
+| 5432 / 6379 | Postgres / Redis | Solo loopback |
+
+Postgres, Redis y la consola de MinIO están atados a `127.0.0.1` en el compose: con una IP
+pública, publicarlos con las credenciales de demo es un incidente, no un riesgo. Para llegar a
+ellos desde fuera, túnel SSH:
+
+```bash
+ssh -L 9001:127.0.0.1:9001 -L 5432:127.0.0.1:5432 root@72.60.112.93
+```
+
+Sigue pendiente para producción lo que ya decía la última sección de este README, y ahora con
+más motivo al estar expuesto a Internet: `AUTH_BYPASS_ENABLED=false`, claves nuevas, TLS
+delante (el tráfico va en HTTP plano, incluidos los JWT) y credenciales de Postgres y MinIO
+distintas de las de demo.
 
 ## Probar el flujo del agente
 

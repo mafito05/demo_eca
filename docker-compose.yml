@@ -4,12 +4,16 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: demoeca-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-demoeca}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-demoeca}
       POSTGRES_DB: ${POSTGRES_DB:-demoeca}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Atado a loopback: en un VPS con IP publica, "5432:5432" deja Postgres abierto a
+      # Internet con las credenciales de demo. Nada fuera del host lo necesita; para conectar
+      # desde fuera, un tunel SSH (-L 5432:127.0.0.1:5432).
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Habilita la extensión `vector` en el primer arranque del volumen.
@@ -23,9 +27,11 @@ services:
   redis:
     image: redis:7-alpine
     container_name: demoeca-redis
+    restart: unless-stopped
     command: redis-server --appendonly yes
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      # Igual que Postgres: Redis sin contrasena en una IP publica es un incidente, no un riesgo.
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -37,13 +43,18 @@ services:
   minio:
     image: minio/minio:latest
     container_name: demoeca-minio
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
-      - "9000:9000"   # API S3
-      - "9001:9001"   # Consola web
+      # 9000 SI tiene que ser publico: las URLs prefirmadas se firman contra
+      # MINIO_PUBLIC_ENDPOINT y es el movil/navegador quien las abre directamente.
+      - "9000:9000"
+      # La consola, no: da acceso administrativo total con minioadmin/minioadmin. Se llega por
+      # tunel SSH (-L 9001:127.0.0.1:9001) y luego http://localhost:9001.
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -75,6 +86,7 @@ services:
       dockerfile: Dockerfile
       target: api
     container_name: demoeca-backend
+    restart: unless-stopped
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-demoeca}:${POSTGRES_PASSWORD:-demoeca}@postgres:5432/${POSTGRES_DB:-demoeca}
@@ -101,6 +113,7 @@ services:
       dockerfile: Dockerfile
       target: worker
     container_name: demoeca-worker
+    restart: unless-stopped
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-demoeca}:${POSTGRES_PASSWORD:-demoeca}@postgres:5432/${POSTGRES_DB:-demoeca}
@@ -111,6 +124,26 @@ services:
     depends_on:
       - backend
     command: celery -A app.workers.celery_app.celery_app worker --loglevel=info -Q video,ingest --concurrency=2
+
+  # Panel de administración compilado y servido por Nginx, que además hace de proxy de /api
+  # hacia el backend (mismo papel que `proxy.conf.json` en desarrollo). Sin esto el panel solo
+  # existe mientras alguien tenga `ng serve` levantado.
+  web:
+    build:
+      context: ./admin-web
+      dockerfile: Dockerfile
+      target: serve
+    container_name: demoeca-web
+    ports:
+      - "${WEB_PORT:-80}:80"
+    volumes:
+      # El APK compilado, servido en /download/ para poder instalarlo desde el navegador del
+      # propio telefono. Solo lectura, y el directorio puede no existir (Docker lo crea vacio):
+      # sin APK compilado la ruta simplemente devuelve 404.
+      - ./mobile/build/app/outputs/flutter-apk:/usr/share/nginx/html/download:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
 
 volumes:
   postgres_data:

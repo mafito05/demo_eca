@@ -3,6 +3,12 @@
 BlueStacks **no** es el emulador de Android Studio, y esa diferencia importa para la red. Esta
 guía asume Windows y el stack corriendo en el mismo ordenador.
 
+> **Si vas a usar el servidor de demo en lugar del stack local**, esta guía te sobra casi entera:
+> con el backend en `http://72.60.112.93:8000` no hay IP de LAN que detectar ni firewall de
+> Windows que abrir. Instala el APK que ya viene compilado contra ese servidor (ver
+> [../README.md](../README.md)) y salta al paso 3, el de los deep links. El resto de la guía
+> sigue siendo la referencia para levantar todo en local.
+
 ## Lo que cambia respecto al emulador de Android Studio
 
 | | Emulador de Android Studio (AVD) | BlueStacks |

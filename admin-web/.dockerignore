@@ -1,0 +1,6 @@
+# node_modules del host no sirve dentro de la imagen (binarios de otra plataforma) y son
+# cientos de MB de contexto de build por cada `docker compose build`.
+node_modules
+dist
+.angular
+.captures

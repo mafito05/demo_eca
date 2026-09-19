@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "permissions": {
+    "allow": [
+      "Edit(//root/demo_eca/**)",
+      "Write(//root/demo_eca/**)",
+      "Read",
+
+      "Bash(docker compose up:*)",
+      "Bash(docker compose build:*)",
+      "Bash(docker compose ps:*)",
+      "Bash(docker compose exec:*)",
+      "Bash(docker compose logs:*)",
+      "Bash(docker compose restart:*)",
+      "Bash(docker compose start:*)",
+      "Bash(docker compose stop:*)",
+      "Bash(docker compose config:*)",
+
+      "Bash(docker run:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker images:*)",
+      "Bash(docker inspect:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker pull:*)",
+      "Bash(docker volume create:*)",
+      "Bash(docker volume ls:*)",
+      "Bash(docker --version)",
+
+      "Bash(./tools/build-apk.sh:*)",
+      "Bash(./tools/setup-server-access.sh:*)",
+
+      "Bash(curl:*)",
+
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+
+      "Bash(python3:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(find:*)",
+      "Bash(stat:*)",
+      "Bash(wc:*)",
+      "Bash(sed -n:*)",
+      "Bash(chmod:*)",
+      "Bash(mkdir:*)",
+      "Bash(df:*)",
+      "Bash(free:*)",
+      "Bash(uptime:*)",
+      "Bash(date:*)",
+      "Bash(ip:*)",
+      "Bash(ss:*)",
+      "Bash(bash -n:*)",
+      "Bash(systemctl is-enabled:*)",
+      "Bash(systemctl status:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf /*)",
+      "Bash(mkfs:*)",
+      "Bash(dd if=:*)"
+    ]
+  }
+}

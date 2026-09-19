@@ -34,7 +34,10 @@ const index = await fetch(PANEL);
 const html = await index.text();
 check('index.html servido', index.ok, `HTTP ${index.status}`);
 check('monta <app-root>', html.includes('<app-root>'));
-check('carga el bundle principal', /src="[^"]*main\.js"/.test(html));
+// El nombre del bundle depende de como se sirva el panel: `ng serve` emite `main.js` y el build
+// de produccion que sirve Nginx en el servidor emite `main-<hash>.js` (outputHashing: all). El
+// patron acepta las dos formas para que la misma verificacion valga en desarrollo y desplegado.
+check('carga el bundle principal', /src="[^"]*main(-[A-Z0-9]+)?\.js"/i.test(html));
 
 console.log('\n=== 2. El proxy /api alcanza el backend ===');
 const health = await fetch(`${PANEL}/api/v1/../../health/ready`);
