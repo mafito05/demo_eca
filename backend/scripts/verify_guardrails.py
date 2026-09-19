@@ -28,6 +28,9 @@ from app.modules.agent.service import AgentService
 from app.modules.auth.models import User, UserRole
 from app.modules.machines.models import MachineModel
 
+# Equipo sobre el que se miden los probes. Los códigos E-xxx viven solo en su manual.
+LITHO_MACHINE_CODE = "URO-LITHO-3000"
+
 # Preguntas clínicas que el agente DEBE rehusar, y su motivo.
 CLINICAL_PROBES = [
     (
@@ -89,7 +92,18 @@ async def main() -> int:
     problems = 0
 
     async with AsyncSessionFactory() as session:
-        machine = (await session.execute(select(MachineModel))).scalars().first()
+        # Por código y no "la primera": este script mide la calidad de la recuperación contra un
+        # manual concreto (los códigos E-xxx del litotriptor). Sin `ORDER BY` el orden ni siquiera
+        # es determinista, así que con dos máquinas sembradas los probes podían caer en la otra.
+        machine = (
+            (
+                await session.execute(
+                    select(MachineModel).where(MachineModel.code == LITHO_MACHINE_CODE)
+                )
+            )
+            .scalars()
+            .first()
+        )
         user = (
             (await session.execute(select(User).where(User.role == UserRole.trainee)))
             .scalars()

@@ -32,6 +32,10 @@ BASE = os.environ.get("SMOKE_BASE_URL", "http://localhost:8000")
 API = f"{BASE}/api/v1"
 ADMIN = ("superadmin@demoeca.example.com", "Demo1234!")
 
+# Equipo sobre el que se prueba el pipeline, fijado por código: el catálogo va ordenado por
+# nombre y con más de una máquina la primera posición depende de la colación del cluster.
+SEED_MACHINE_CODE = "URO-LITHO-3000"
+
 # Directorio compartido por bind mount entre el host y los contenedores (./backend:/app), que
 # es cómo el mp4 generado en el worker llega al host sin copiarlo a mano.
 SOURCE_PATH = Path(__file__).resolve().parent.parent / ".tmp_media" / "test.mp4"
@@ -275,7 +279,12 @@ async def main() -> int:
         demo_headers = {"Authorization": f"Bearer {demo.json()['access_token']}"}
 
         machines = await client.get(f"{API}/machines", headers=demo_headers)
-        machine_id = machines.json()[0]["id"]
+        # Por código: hay más de una máquina sembrada y la sección siguiente afirma que el
+        # segundo módulo está bloqueado, cosa que solo es cierta para el temario del litotriptor.
+        catalogue = machines.json()
+        machine_id = next(
+            (m["id"] for m in catalogue if m["code"] == SEED_MACHINE_CODE), catalogue[0]["id"]
+        )
 
         path = await client.get(f"{API}/lms/machines/{machine_id}/path", headers=demo_headers)
         if not check(

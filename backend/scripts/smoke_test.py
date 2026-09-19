@@ -28,6 +28,10 @@ WS = BASE.replace("http://", "ws://").replace("https://", "wss://") + "/api/v1/a
 
 SUPERADMIN = ("superadmin@demoeca.example.com", "Demo1234!")
 
+# Equipo contra el que se ejecuta el recorrido. Se fija por código porque el seed siembra más de
+# una máquina y los probes del RAG dependen de un manual concreto (el del litotriptor).
+SEED_MACHINE_CODE = "URO-LITHO-3000"
+
 passed: list[str] = []
 failed: list[str] = []
 skipped: list[str] = []
@@ -126,7 +130,11 @@ async def main() -> int:
             f"HTTP {machines.status_code} {len(items)} máquinas",
         ):
             return 1
-        machine = items[0]
+        # Por código y no `items[0]`: el catálogo va ordenado por nombre, y desde que hay un
+        # segundo equipo sembrado ("Uro-Flow 2000") la primera posición depende de la colación
+        # del cluster. Las secciones 7 y 10 preguntan por el error E-204, que solo está en el
+        # manual del litotriptor: contra otra máquina fallarían con pinta de regresión del RAG.
+        machine = next((m for m in items if m["code"] == SEED_MACHINE_CODE), items[0])
         qr_token = machine["qr_token"]
         print(f"         máquina: {machine['code']} · qr_token={qr_token}")
 

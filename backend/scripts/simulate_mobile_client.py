@@ -22,6 +22,9 @@ from urllib.parse import urlparse
 
 import httpx
 
+# Equipo contra el que se simula el recorrido, fijado por código (ver el comentario del escaneo).
+SEED_MACHINE_CODE = "URO-LITHO-3000"
+
 passed: list[str] = []
 failed: list[str] = []
 
@@ -57,7 +60,11 @@ async def main(base: str) -> int:
         machines = await client.get(f"{api}/machines", headers=headers)
         if not check("catálogo accesible", machines.status_code == 200):
             return 1
-        qr_token = machines.json()[0]["qr_token"]
+        # Por código: el catálogo va ordenado por nombre y hay más de una máquina sembrada, así
+        # que la primera posición depende de la colación de la base de datos.
+        catalogue = machines.json()
+        machine = next((m for m in catalogue if m["code"] == SEED_MACHINE_CODE), catalogue[0])
+        qr_token = machine["qr_token"]
         print(f"         token del QR: {qr_token}")
 
         resolved = await client.get(f"{api}/machines/resolve/{qr_token}", headers=headers)

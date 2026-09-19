@@ -56,6 +56,9 @@ logger = logging.getLogger("seed-activity")
 SEED = 20260727
 WINDOW_DAYS = 21
 
+# Equipo sobre el que se genera la actividad de escenografía.
+DEMO_MACHINE_CODE = "URO-LITHO-3000"
+
 TRAINEES = [
     ("trainee-nadia@demoeca.example.com", "Nadia Okonkwo", "Urology", "Demo Hospital"),
     ("trainee-marc@demoeca.example.com", "Marc Petit", "Biomedical Engineering", "Demo Hospital"),
@@ -158,10 +161,13 @@ async def seed() -> None:
     now = datetime.now(UTC)
 
     async with AsyncSessionFactory() as session:
+        # Se fija por código para que el dashboard de la demo cuente siempre la misma historia:
+        # con dos máquinas publicadas, "la primera" depende de la colación de la base de datos y
+        # la actividad sembrada saltaría de un equipo a otro entre entornos.
         machine = (
             (
                 await session.execute(
-                    select(MachineModel).where(MachineModel.status == PublishStatus.published)
+                    select(MachineModel).where(MachineModel.code == DEMO_MACHINE_CODE)
                 )
             )
             .scalars()
