@@ -901,6 +901,147 @@ página.
 app ya mostraba bajo el reproductor para cualquier tipo de lección — el PATCH del backend siempre
 lo aceptó; era la UI la que solo ofrecía el título.
 
+## D-056 · Despliegue en VPS: el panel deja de depender de `ng serve`
+**Contexto:** la demo pasa de una LAN sin salida a Internet a un VPS con IP pública
+(`72.60.112.93`). Hasta aquí el panel solo existía mientras alguien tuviera `ng serve` levantado
+en su máquina, y `proxy.conf.json` —que es lo que evita el CORS y hace de puente al `:8000`— es
+una pieza del dev-server, no del producto.
+
+**Decisión:** un servicio `web` en el compose que compila el panel y lo sirve con Nginx en el
+:80, reproduciendo el mismo proxy sobre `/api`. Alternativa descartada: apuntar `environment.ts`
+a `http://IP:8000`. Habría metido la IP dentro del bundle —recompilar el panel entero al cambiar
+de host— y devuelto el CORS y el preflight que `apiUrl: '/api/v1'` existe para evitar (D-042). Con
+el proxy, el navegador sigue viendo un solo origen y el WebSocket del agente sube por el mismo
+camino.
+
+**Dos trampas que costaron una vuelta:**
+
+1. **Las locations por regex ganan a las de prefijo en Nginx.** El bloque de cacheo de estáticos
+   (`~* \.(js|css|png|...)$`) se quedaba con `/api/v1/machines/{id}/qr.png` y devolvía el 404 de
+   Nginx en lugar del PNG del backend. Se arregla con `location ^~ /api/`, que corta la
+   evaluación de regex. Lo cazó `verify-panel.mjs`, que comprueba justo esa descarga.
+2. **`main.js` no se llama igual en producción.** Con `outputHashing: all` el bundle es
+   `main-<hash>.js`, así que la comprobación "carga el bundle principal" fallaba contra el panel
+   desplegado aunque el panel estuviera perfecto. El patrón ahora acepta las dos formas: una
+   verificación que solo vale en desarrollo no verifica lo que se despliega.
+
+**Superficie de red:** el salto de LAN a IP pública convierte "puerto publicado" en "puerto
+expuesto a Internet". Postgres, Redis y la consola de MinIO quedan atados a `127.0.0.1` (con las
+credenciales de demo, publicarlos no es un riesgo: es un incidente). El `:9000` de MinIO **tiene**
+que seguir siendo público, porque la firma SigV4 cubre el `Host` y es el propio dispositivo quien
+abre la URL prefirmada — el mismo motivo de `MINIO_PUBLIC_ENDPOINT` (D-018), solo que ahora el
+host es una IP enrutable en lugar de una de LAN. Sigue todo en HTTP plano, JWT incluidos: TLS es
+requisito antes de que esto vea un dato real.
+
+**Tooling:** `setup-server-access.sh` y `build-apk.sh` son los equivalentes en bash de los `.ps1`,
+que asumían PowerShell y `Get-NetRoute`. Se añaden en lugar de sustituirlos: el entorno de
+desarrollo sigue siendo Windows. `build-apk.sh` además comprueba con `strings` que la IP quedó
+embebida en el binario — es el fallo más caro de descubrir tarde, porque solo se manifiesta al
+reinstalar en el dispositivo.
+
+## D-057 · Renombrado de marca: panel y app
+**Decisión del cliente:** el panel pasa a mostrar **ECA COMMUNICATIONS · Gemini Demo** y la app
+móvil se llama **ECA GEMINI DEMO**. Fuera el nombre anterior, `DemoECA`, en ambos.
+
+**Registro del cambio de criterio, porque afecta a cómo leer lo que sigue:** el encargo inicial
+fue dejar la app sin marca —se llamó `Equipment Training` durante una iteración, con el
+razonamiento de que el panel lo usa el cliente y la app la ve el personal del hospital, donde una
+marca comercial no aporta—. El cliente lo revisó y pidió que la app llevara el nombre de la demo.
+Queda anotado por si vuelve a plantearse: el argumento a favor del nombre neutro era que
+sobrevive a un cambio de cliente sin recompilar.
+
+**Alcance: solo lo que ve el usuario.** Se tocaron cuatro sitios en la app —el título de
+`MaterialApp`, el titular de la pantalla de entrada, `android:label` y `CFBundleDisplayName`— y
+tres en el panel —sidebar, login y `<title>`—. **No** se tocaron los identificadores internos que
+siguen diciendo `demoeca`: el `applicationId` (`com.demoeca.demoeca_app`), el esquema del deep
+link, las claves de `SharedPreferences`/`localStorage`, la familia tipográfica `DemoEcaMono` ni
+los nombres de clase. Cambiarlos no cambia nada de lo que se ve y sí rompe cosas: el
+`applicationId` es la identidad de la app para Android (instalación, firma, App Links), el
+esquema está grabado en los QR ya impresos, y renombrar las claves de almacenamiento cerraría la
+sesión de todo el mundo en el despliegue.
+
+**`ECAHelp` se queda.** Es el nombre de la función, no el de la empresa, y sale en el menú
+inferior, la cabecera del chat y el botón flotante. Renombrarlo era la única parte realmente
+invasiva del encargo y el cliente confirmó que no hace falta.
+
+**Cuidado con la longitud.** `ECA GEMINI DEMO` son 15 caracteres en mayúsculas: bajo el icono del
+lanzador Android lo trunca a dos líneas, y en la pantalla de entrada, a 320 dp, el titular puede
+partirse en dos. Ninguna de las dos cosas rompe nada —el `Text` envuelve, no desborda— pero es lo
+primero que hay que mirar si el nombre vuelve a crecer.
+
+**Pendiente si se quiere marca cero:** la pantalla de login del panel sigue mostrando las
+credenciales de demo con el dominio `@demoeca.example.com`, que viene del seed. Cambiarlo obliga
+a re-sembrar la BD y a tocar los scripts de verificación, que las traen fijadas.
+
+## D-058 · Las fotos de producto van a un bucket público, sin firmar
+**Decisión:** las imágenes de equipo viven en `demoeca-public` —el bucket que `minio-init` ya creaba
+con `mc anonymous set download` y que nadie usaba— y se sirven por URL directa.
+
+**Por qué no se firman, si el video sí (D-011):** una URL prefirmada caduca a la hora. Un catálogo
+abierto en un móvil se quedaría con las fotos rotas sin que nadie tocase nada, y ese es justo el
+fallo que hace parecer rota la aplicación. `mc anonymous set download` concede `s3:GetObject`
+anónimo pero **no** `ListBucket`, así que las claves (dos UUID) no son enumerables.
+
+**Regla dura:** en ese bucket solo van fotos de producto. Manuales, certificados y cualquier cosa
+con datos de paciente siguen en `demoeca-docs`, privado y servido con `presign_get`.
+
+**Cache busting:** la URL lleva `?v=<updated_at>`. Sin él, sustituir una foto no se ve: la URL no
+cambia y el navegador —y el `ImageCache` de Flutter— siguen sirviendo la anterior. Es el fallo que
+más probablemente aparecería en una demo.
+
+**Validación en dos tiempos, porque el PUT va del navegador a MinIO (D-010) y el backend no ve los
+bytes:** al pedir la URL se comprueba lo que el cliente *declara* (tipo permitido, tamaño, tope por
+máquina); al confirmar, `stat_object` da el tamaño y el `Content-Type` reales y, si no cuadran, se
+borra el objeto y la fila. **SVG queda fuera a propósito**: servido desde un bucket público es XSS
+almacenado, y la URL no caduca nunca.
+
+## D-059 · La galería es una tabla, y la portada es un rol dentro de ella
+**Decisión:** `machine_images` con `order_index`, `role` (`cover` | `gallery`) e `is_ready`, en vez
+de una columna JSON en `machine_models`. La antigua `cover_image_key` se elimina.
+
+**Por qué no JSON:** (1) cada imagen necesita identidad propia para borrarla o reordenarla sola;
+(2) un JSON editado *en sitio* no marca la fila como sucia en SQLAlchemy y el cambio se pierde sin
+error — `VideoAsset.renditions` se libra solo porque el worker reasigna la lista entera.
+
+**Por qué la portada es un rol y no un campo aparte:** con un campo en la máquina habría dos formas
+de guardar una imagen, dos de construir su URL y dos de borrarla, y "promociona esta foto" sería
+copiar una clave entre sitios en lugar de cambiar una etiqueta. `cover_image_key` nunca llegó a
+exponerse en ningún endpoint y estaba a NULL, así que eliminarla no rompió nada.
+
+**"Como mucho una portada" se garantiza en la base de datos** con un índice único parcial
+(`WHERE role = 'cover'`), que el autogenerador de Alembic no saca y hay que escribir a mano. El
+router degrada la portada anterior en la misma transacción; el índice es la red de seguridad.
+
+## D-060 · El video se asigna al equipo al subirlo
+**Decisión:** `video_assets.machine_model_id`, nullable, más filtros `?machine_model_id=` y
+`?unassigned=true` en `GET /lms/videos`.
+
+**Por qué no bastaba la cadena existente:** `VideoAsset ← Lesson → TrainingModule → MachineModel`
+solo clasifica los videos que ya cuelgan de una lección. Los recién subidos no cuelgan de nada, y
+son precisamente los que se pierden de vista (D-055). Nullable y sin `server_default`: los assets
+anteriores quedan "sin asignar", que es un estado legítimo y visible, no adjudicados al azar.
+
+**Reusar un video entre equipos se permite:** en una demo puede querer enseñarse el mismo material
+en dos rutas. Un video sin equipo adopta el del módulo al engancharlo a una lección.
+
+**En el panel**, el `<select>` de la lección agrupa por equipo pero **mantiene el video ya asignado
+aunque sea de otro equipo**: si el filtro lo excluyera, el `<select>` saldría vacío y el primer
+guardado dejaría la lección sin video en silencio.
+
+## D-061 · `app-file-drop` es tonto a propósito
+**Decisión:** un componente de subida compartido entre máquinas y capacitación que **no hace HTTP**.
+El flujo de dos fases (ticket → PUT prefirmado → confirmar o encolar) se queda en el servicio y en
+el componente padre.
+
+**Motivo:** así vale igual para un video de 2 GB y para una foto de 200 KB sin un solo condicional
+dentro, y el detalle delicado —cuándo se encola el procesado— vive en un único sitio.
+
+**El centinela `-1`:** el servicio sigue emitiendo `progress: -1` para los eventos sin progreso útil
+(D-054). El componente lo trata como "medidor indeterminado", así que es inofensivo aunque llegue,
+sin que tenga que saber que existe. Y `videoAssetId` pasa a emitirse **al responder el ticket**, no
+al terminar, para poder cancelar y borrar el asset huérfano; la señal de "ya se puede procesar" es
+el nuevo `done`.
+
 ---
 
 ## Supuestos aplicados por defecto (pendientes de confirmar en reunión)
