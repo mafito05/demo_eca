@@ -40,9 +40,25 @@ export type IconName =
   | 'trend-down'
   | 'minus'
   | 'menu'
-  | 'user';
+  | 'user'
+  | 'image'
+  | 'upload'
+  | 'video'
+  | 'play'
+  | 'trash'
+  | 'search'
+  | 'star'
+  | 'x';
 
 export const ICONS: Record<IconName, string> = {
+  image: 'M3 5h18v14H3V5Zm0 11 5-5 4 4 3-3 6 6',
+  upload: 'M12 16V4m0 0L8 8m4-4 4 4M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2',
+  video: 'M3 6h11v12H3V6Zm11 4 7-4v12l-7-4',
+  play: 'M7 4.5v15l13-7.5-13-7.5Z',
+  trash: 'M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13',
+  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm5.5 12.5L21 21',
+  star: 'm12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8 6.2 20.9l1.1-6.5L2.6 9.8l6.5-.9L12 3Z',
+  x: 'M6 6l12 12M18 6 6 18',
   dashboard: 'M3 13h8V3H3v10Zm10 8h8V11h-8v10ZM3 21h8v-6H3v6ZM13 9h8V3h-8v6Z',
   qr: 'M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 3h3m0 0v3m3-3h.01M17 14h3',
   graduation: 'M22 9 12 5 2 9l10 4 10-4Zm0 0v6M6 11.5V16c0 1.1 2.7 2.5 6 2.5s6-1.4 6-2.5v-4.5',

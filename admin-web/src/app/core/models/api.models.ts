@@ -36,6 +36,25 @@ export interface User {
   is_demo: boolean;
 }
 
+export type MachineImageRole = 'cover' | 'gallery';
+
+export interface MachineImage {
+  id: string;
+  /**
+   * URL pública absoluta, ya compuesta por el backend e incluyendo un sufijo `?v=`. Ese sufijo
+   * es lo que hace que sustituir una foto se vea: sin él la URL no cambia y el navegador sigue
+   * sirviendo la anterior de su caché.
+   */
+  url: string;
+  role: MachineImageRole;
+  order_index: number;
+  alt_text: string | null;
+  content_type: string;
+  size_bytes: number | null;
+  /** False mientras el PUT prefirmado no se ha confirmado. Solo el backoffice las ve. */
+  is_ready: boolean;
+}
+
 export interface Machine {
   id: string;
   code: string;
@@ -49,6 +68,19 @@ export interface Machine {
   lessons_count: number;
   completed_lessons: number;
   progress_percent: number;
+  /** Portada, o null si el equipo no tiene ninguna. Es la miniatura del catálogo móvil. */
+  cover_image_url: string | null;
+  images: MachineImage[];
+}
+
+export interface MachineImageUploadTicket {
+  image_id: string;
+  upload_url: string;
+  object_key: string;
+  public_url: string;
+  expires_in_seconds: number;
+  /** El PUT a MinIO DEBE mandar este Content-Type, o `confirm` rechaza el fichero. */
+  required_content_type: string;
 }
 
 export interface QrExport {
@@ -171,6 +203,7 @@ export interface VideoAsset {
   renditions: { name: string; playlist_key: string; width: number; height: number }[];
   error_message: string | null;
   attempts: number;
+  machine_model_id: string | null;
 }
 
 export interface VideoAssetListItem {
@@ -183,6 +216,9 @@ export interface VideoAssetListItem {
   created_at: string;
   /** Títulos de las lecciones que lo usan. Vacío = huérfano, se puede borrar. */
   used_by_lessons: string[];
+  /** Equipo al que pertenece. Null = sin asignar, se reasigna desde la biblioteca. */
+  machine_model_id: string | null;
+  machine_name: string | null;
 }
 
 export interface VideoUploadTicket {
@@ -487,6 +523,9 @@ export interface AuthoringTree {
   machine_name: string;
   machine_status: PublishStatus;
   modules: ModuleAuthoring[];
+  machine_cover_url: string | null;
+  /** Incluye las no confirmadas: es la vista de edición y hay que poder borrarlas. */
+  machine_images: MachineImage[];
 }
 
 // =============================================================================

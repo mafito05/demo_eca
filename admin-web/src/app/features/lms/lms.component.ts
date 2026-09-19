@@ -1,6 +1,6 @@
 import { Component, OnDestroy, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { forkJoin } from 'rxjs';
+import { Subscription, forkJoin } from 'rxjs';
 
 import { LmsService } from '../../core/services/lms.service';
 import { MachinesService } from '../../core/services/machines.service';
@@ -15,6 +15,8 @@ import {
   VideoAssetListItem,
 } from '../../core/models/api.models';
 import { IconComponent } from '../../shared/icon/icon.component';
+import { FileDropComponent } from '../../shared/upload/file-drop.component';
+import { LibraryScope, VideoLibraryComponent } from './video-library.component';
 
 /**
  * Capacitación: autoría completa de módulos y lecciones + pipeline de video.
@@ -31,7 +33,7 @@ import { IconComponent } from '../../shared/icon/icon.component';
  */
 @Component({
   selector: 'app-lms',
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, FileDropComponent, VideoLibraryComponent],
   template: `
     <div class="page">
       <div class="page-head">
@@ -231,11 +233,41 @@ import { IconComponent } from '../../shared/icon/icon.component';
                           name="elVideo"
                           [(ngModel)]="lessonDraft.video_asset_id"
                         >
-                          @for (video of readyVideos(); track video.id) {
-                            <option [ngValue]="video.id">
-                              {{ video.original_filename }}
-                              ({{ (video.duration_seconds ?? 0).toFixed(0) }}s)
-                            </option>
+                          @if (videosForMachine().length) {
+                            <optgroup [label]="machineCode()">
+                              @for (video of videosForMachine(); track video.id) {
+                                <option [ngValue]="video.id">
+                                  {{ video.original_filename }}
+                                  ({{ (video.duration_seconds ?? 0).toFixed(0) }}s)
+                                </option>
+                              }
+                            </optgroup>
+                          }
+                          @if (videosUnassigned().length) {
+                            <optgroup label="Unassigned">
+                              @for (video of videosUnassigned(); track video.id) {
+                                <option [ngValue]="video.id">
+                                  {{ video.original_filename }}
+                                  ({{ (video.duration_seconds ?? 0).toFixed(0) }}s)
+                                </option>
+                              }
+                            </optgroup>
+                          }
+                          <!--
+                            El video actualmente seleccionado, si pertenece a otro equipo. NO es
+                            cosmético: si el filtro lo excluyera, el select se renderizaría vacío
+                            y al guardar mandaría video_asset_id: null — la lección perdería su
+                            video en silencio.
+                          -->
+                          @if (foreignSelected(); as foreign) {
+                            <optgroup label="Other equipment">
+                              <option [ngValue]="foreign.id">
+                                {{ foreign.original_filename }}
+                                @if (foreign.machine_name) {
+                                  — {{ foreign.machine_name }}
+                                }
+                              </option>
+                            </optgroup>
                           }
                         </select>
                         <p class="hint">
@@ -422,20 +454,26 @@ import { IconComponent } from '../../shared/icon/icon.component';
               passing through the API. A worker then transcodes it to HLS at several qualities.
             </p>
 
-            <div class="field">
-              <label for="file">MP4 file</label>
-              <input
-                id="file"
-                type="file"
-                accept="video/*"
-                [disabled]="uploading()"
-                (change)="onFile($event)"
-              />
-            </div>
+            @if (machineId) {
+              <p class="hint">
+                Uploads are assigned to <strong>{{ machineCode() }}</strong
+                >, so they show up filtered in the library and in the lesson picker.
+              </p>
+            }
 
-            @if (uploading()) {
-              <div class="progress"><span [style.width.%]="uploadProgress()"></span></div>
-              <p class="hint">Uploading… {{ uploadProgress() }}%</p>
+            <app-file-drop
+              accept="video/*"
+              label="Drop an MP4 here"
+              hint="Any video file · assigned to the selected machine"
+              [disabled]="!machineId"
+              [busy]="uploading()"
+              [progress]="uploadProgress()"
+              [fileName]="uploadFileName()"
+              (picked)="onFilePicked($event)"
+              (cancel)="cancelUpload()"
+            />
+            @if (!machineId) {
+              <p class="hint" style="color: var(--warn)">Pick a machine above to upload a video.</p>
             }
 
             @if (asset(); as videoAsset) {
@@ -515,74 +553,19 @@ import { IconComponent } from '../../shared/icon/icon.component';
             }
           </section>
 
-          <section class="card">
-            <div class="card-head">
-              <h2>Video library</h2>
-              <button class="small" type="button" (click)="loadLibrary()">Refresh</button>
-            </div>
-            <p class="hint" style="margin-top:-0.4rem">
-              Every uploaded video and its state. Transcoding takes roughly a minute per minute of
-              footage — a video stays here even if you leave the page while it processes.
-            </p>
-            @if (library().length === 0) {
-              <div class="empty compact">No videos uploaded yet.</div>
-            } @else {
-              @for (video of library().slice(0, 8); track video.id) {
-                <div class="lesson" style="border-top: 1px solid var(--border)">
-                  <span class="grow trunc" [title]="video.original_filename">
-                    {{ video.original_filename }}
-                    <span
-                      class="badge"
-                      style="margin-left: 0.35rem"
-                      [class.ok]="video.status === 'ready'"
-                      [class.warn]="video.status === 'processing' || video.status === 'queued'"
-                      [class.danger]="video.status === 'failed'"
-                    >
-                      {{ video.status }}
-                    </span>
-                    @if (video.duration_seconds) {
-                      <span class="badge" style="margin-left: 0.25rem">
-                        {{ video.duration_seconds.toFixed(0) }}s
-                      </span>
-                    }
-                    @if (video.used_by_lessons.length) {
-                      <span
-                        class="badge accent"
-                        style="margin-left: 0.25rem"
-                        [title]="video.used_by_lessons.join(', ')"
-                      >
-                        in use
-                      </span>
-                    }
-                  </span>
-                  <span class="row" style="flex-wrap: nowrap; gap: 0.25rem">
-                    @if (video.status === 'ready' && !video.used_by_lessons.length) {
-                      <button class="small" type="button" (click)="useFromLibrary(video)">
-                        Use
-                      </button>
-                    }
-                    @if (video.status === 'failed' || video.status === 'uploaded') {
-                      <button class="small" type="button" (click)="processFromLibrary(video)">
-                        Process
-                      </button>
-                    }
-                    @if (!video.used_by_lessons.length) {
-                      <button
-                        class="small danger-outline"
-                        type="button"
-                        (click)="removeVideo(video)"
-                      >
-                        Delete
-                      </button>
-                    }
-                  </span>
-                </div>
-              }
-              @if (library().length > 8) {
-                <p class="hint">…and {{ library().length - 8 }} more.</p>
-              }
-            }
-          </section>
+          <app-video-library
+            [videos]="library()"
+            [machines]="machines()"
+            [machineId]="machineId"
+            [scope]="libraryScope()"
+            [unassignedCount]="unassignedCount()"
+            (scopeChange)="setLibraryScope($event)"
+            (refresh)="loadLibrary()"
+            (use)="useFromLibrary($event)"
+            (process)="processFromLibrary($event)"
+            (remove)="removeVideo($event)"
+            (assign)="assignToMachine($event)"
+          />
 
           <section class="card">
             <div class="card-head">
@@ -683,11 +666,17 @@ export class LmsComponent implements OnDestroy {
   readonly preview = signal<LearningPath | null>(null);
   readonly asset = signal<VideoAsset | null>(null);
   readonly uploading = signal(false);
-  readonly uploadProgress = signal(0);
+  readonly uploadProgress = signal<number | null>(null);
+  readonly uploadFileName = signal<string | null>(null);
+  private upload: Subscription | null = null;
+  /** Id del ticket: permite borrar el asset huérfano si se cancela a mitad de subida. */
+  private pendingAssetId: string | null = null;
   readonly message = signal<string | null>(null);
   readonly messageIsError = signal(false);
 
   readonly library = signal<VideoAssetListItem[]>([]);
+  readonly libraryScope = signal<LibraryScope>('machine');
+  readonly unassignedCount = signal(0);
   readonly creatingModule = signal(false);
   readonly editingModuleId = signal<string | null>(null);
   readonly editingLessonId = signal<string | null>(null);
@@ -741,14 +730,70 @@ export class LmsComponent implements OnDestroy {
   }
 
   loadLibrary(): void {
-    this.lms.listVideos().subscribe({
+    const scope = this.libraryScope();
+    const machine = this.machineId;
+    const params =
+      scope === 'machine' && machine
+        ? { machineModelId: machine }
+        : scope === 'unassigned'
+          ? { unassigned: true }
+          : undefined;
+
+    this.lms.listVideos(params).subscribe({
       next: (videos) => this.library.set(videos),
       error: () => this.notify('Could not load the video library.', true),
     });
+
+    // El recuento de "sin asignar" se pide aparte y sin filtrar: tiene que ser visible desde
+    // cualquier ámbito, o los videos antiguos parecerían haber desaparecido.
+    this.lms.listVideos({ unassigned: true }).subscribe({
+      next: (videos) => this.unassignedCount.set(videos.length),
+      error: () => this.unassignedCount.set(0),
+    });
   }
 
-  readyVideos(): VideoAssetListItem[] {
-    return this.library().filter((video) => video.status === 'ready');
+  setLibraryScope(scope: LibraryScope): void {
+    this.libraryScope.set(scope);
+    this.loadLibrary();
+  }
+
+  /** Asigna al equipo activo un video que estaba huérfano. Vía de migración de los antiguos. */
+  assignToMachine(video: VideoAssetListItem): void {
+    const machine = this.machineId;
+    if (!machine) return;
+    this.lms.assignVideo(video.id, machine).subscribe({
+      next: () => {
+        this.notify(`"${video.original_filename}" assigned to ${this.machineCode()}.`, false);
+        this.loadLibrary();
+      },
+      error: (err) => this.notifyHttp('Could not assign the video', err),
+    });
+  }
+
+  /** Listos y de este equipo. */
+  videosForMachine(): VideoAssetListItem[] {
+    const machine = this.machineId;
+    return this.library().filter((v) => v.status === 'ready' && v.machine_model_id === machine);
+  }
+
+  /** Listos y todavía sin equipo: se pueden usar y quedan adoptados por el módulo (D-060). */
+  videosUnassigned(): VideoAssetListItem[] {
+    return this.library().filter((v) => v.status === 'ready' && !v.machine_model_id);
+  }
+
+  /**
+   * El video que la lección ya tiene, cuando pertenece a OTRO equipo.
+   *
+   * Sin esta opción en la lista, el `<select>` no encontraría su valor, se pintaría vacío, y el
+   * primer guardado dejaría la lección sin video sin que nadie lo pidiera.
+   */
+  foreignSelected(): VideoAssetListItem | null {
+    const current = this.lessonDraft.video_asset_id;
+    if (!current) return null;
+    const machine = this.machineId;
+    const video = this.library().find((v) => v.id === current);
+    if (!video || !video.machine_model_id || video.machine_model_id === machine) return null;
+    return video;
   }
 
   removeVideo(video: VideoAssetListItem): void {
@@ -1005,28 +1050,32 @@ export class LmsComponent implements OnDestroy {
   // --------------------------------------------------------------------------
   //  Video
   // --------------------------------------------------------------------------
-  onFile(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    // El input se resetea SIEMPRE, incluso antes de validar: sin esto, elegir el mismo fichero
-    // por segunda vez (típico tras un fallo) no dispara `change` y la pantalla parece muerta —
-    // era la causa principal del "no se pueden subir videos".
-    input.value = '';
-    if (!file) {
+  onFilePicked(files: File[]): void {
+    const file = files[0];
+    if (!file || !this.machineId) {
       return;
     }
 
     this.uploading.set(true);
     this.uploadProgress.set(0);
+    this.uploadFileName.set(file.name);
     this.asset.set(null);
+    this.pendingAssetId = null;
 
-    this.lms.uploadVideo(file).subscribe({
+    this.upload = this.lms.uploadVideo(file, this.machineId).subscribe({
       next: (state) => {
+        if (state.videoAssetId) {
+          this.pendingAssetId = state.videoAssetId;
+        }
         if (state.progress >= 0) {
           this.uploadProgress.set(state.progress);
         }
-        if (state.videoAssetId) {
+        // `done`, y NO la presencia de `videoAssetId`: ese llega al emitirse el ticket, antes de
+        // subir un solo byte, y encolar entonces procesaría un objeto que aún no está en MinIO.
+        if (state.done && state.videoAssetId) {
           this.uploading.set(false);
+          this.uploadFileName.set(null);
+          this.upload = null;
           // Subido no es procesado: hay que encolar la transcodificación explícitamente, lo que
           // permite reintentarla sin volver a subir el fichero.
           this.lms.processVideo(state.videoAssetId).subscribe({
@@ -1034,6 +1083,7 @@ export class LmsComponent implements OnDestroy {
               this.asset.set(asset);
               this.videoLessonDraft.title = file.name.replace(/\.[^.]+$/, '');
               this.startPolling(asset.id);
+              this.loadLibrary();
             },
             error: (err) =>
               this.notifyHttp('The file uploaded but processing could not be queued', err),
@@ -1041,12 +1091,34 @@ export class LmsComponent implements OnDestroy {
         }
       },
       error: (err) => {
-        this.uploading.set(false);
-        // Con el status y el detalle: "Video upload failed." a secas hacía imposible distinguir
-        // un fallo de red hacia MinIO de un 403 de permisos.
-        this.notifyHttp('Video upload failed', err);
+        this.resetUpload();
+        this.notifyHttp('The video could not be uploaded', err);
       },
     });
+  }
+
+  /** Aborta el XHR y borra el asset que el ticket ya había creado. */
+  cancelUpload(): void {
+    this.upload?.unsubscribe();
+    if (this.pendingAssetId) {
+      this.lms.deleteVideo(this.pendingAssetId).subscribe({
+        next: () => this.loadLibrary(),
+        error: () => this.loadLibrary(),
+      });
+    }
+    this.resetUpload();
+  }
+
+  private resetUpload(): void {
+    this.uploading.set(false);
+    this.uploadProgress.set(null);
+    this.uploadFileName.set(null);
+    this.upload = null;
+    this.pendingAssetId = null;
+  }
+
+  machineCode(): string {
+    return this.machines().find((m) => m.id === this.machineId)?.code ?? '';
   }
 
   retryProcessing(assetId: string): void {
