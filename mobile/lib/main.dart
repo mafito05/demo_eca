@@ -73,7 +73,7 @@ class _DemoEcaAppState extends ConsumerState<DemoEcaApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'DemoECA',
+      title: 'ECA GEMINI DEMO',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),

@@ -10,8 +10,8 @@ import { AuthService } from '../../core/services/auth.service';
   template: `
     <div class="wrap">
       <form class="card" (ngSubmit)="submit()">
-        <h1>DemoECA</h1>
-        <p class="sub">Admin panel · MedTech Training</p>
+        <h1>ECA COMMUNICATIONS</h1>
+        <p class="sub">Admin panel · Gemini Demo</p>
 
         @if (error()) {
           <div class="alert error">{{ error() }}</div>

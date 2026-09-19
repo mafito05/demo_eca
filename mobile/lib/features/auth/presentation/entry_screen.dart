@@ -63,7 +63,7 @@ class _EntryScreenState extends ConsumerState<EntryScreen> {
                   const Align(child: LogoMark()),
                   const SizedBox(height: AppSpacing.lg),
                   Text(
-                    'DemoECA',
+                    'ECA GEMINI DEMO',
                     style: theme.textTheme.headlineMedium,
                     textAlign: TextAlign.center,
                   ),

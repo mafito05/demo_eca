@@ -35,8 +35,8 @@ interface NavEntry {
       <div class="brand">
         <span class="brand-mark" aria-hidden="true">EC</span>
         <span class="brand-text">
-          <span class="brand-name">DemoECA</span>
-          <span class="brand-sub">MedTech Training</span>
+          <span class="brand-name">ECA COMMUNICATIONS</span>
+          <span class="brand-sub">Gemini Demo</span>
         </span>
       </div>
 

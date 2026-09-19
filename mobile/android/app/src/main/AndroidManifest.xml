@@ -15,7 +15,7 @@
          atributo el video falla con CleartextNotPermitted mientras el resto de la app funciona.
          En produccion iria TLS y este atributo fuera. -->
     <application
-        android:label="DemoECA"
+        android:label="ECA GEMINI DEMO"
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher">

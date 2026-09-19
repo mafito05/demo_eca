@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>DemoECA</string>
+	<string>ECA GEMINI DEMO</string>
 
 	<!-- Sin esta descripción iOS **cierra la app** al pedir la cámara, no muestra un error.
 	     El texto lo lee el usuario en el diálogo del sistema, así que explica el motivo. -->
