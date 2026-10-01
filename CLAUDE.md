@@ -15,7 +15,7 @@ español. No traduzcas comentarios ni documentación interna. Ver D-039.
 | [DECISIONS.md](DECISIONS.md) | 61 decisiones (D-001…D-061) con su motivo y su ruta de salida. **Obligatorio antes de tocar el esquema de la base de datos, el RAG, el pipeline de video o el tema de la app.** Casi todo lo que parece raro está explicado ahí. |
 | [README.md](README.md) | Arranque, verificación, despliegue, puertos. |
 | [docs/registro-de-trabajo.md](docs/registro-de-trabajo.md) | Historia de las sesiones: qué se pidió, qué se decidió y qué quedó a medias. |
-| [docs/arquitectura-aws-hipaa.md](docs/arquitectura-aws-hipaa.md) | Propuesta AWS. **Describe una arquitectura de gran empresa que ya NO es el plan.** Ver "Plan AWS" más abajo. |
+| [docs/arquitectura-aws-hipaa.md](docs/arquitectura-aws-hipaa.md) | **El plan AWS vigente**, con las brechas de cumplimiento, el coste estimado, el orden de trabajo y la ruta de crecimiento. El resumen de abajo no lo sustituye. |
 | [mobile/README.md](mobile/README.md), [admin-web/README.md](admin-web/README.md) | Detalles de cada cliente. |
 | [guia.md](guia.md) | El encargo original del cliente. Histórico. |
 
@@ -145,11 +145,10 @@ propio** para el HTTPS. La alta disponibilidad **no** es prioritaria: se acepta 
 servicio si cae, siempre que no ocurra a menudo ni dure mucho, pero hace falta monitorización que
 avise.
 
-**Decisión: Docker en una sola EC2, NO Fargate.** La arquitectura de
-[docs/arquitectura-aws-hipaa.md](docs/arquitectura-aws-hipaa.md) (Multi-AZ, ALB, NAT, Fargate,
-RDS, ElastiCache, VPC endpoints, Config, Security Hub) cuesta del orden de 400–800 USD al mes y
-está desproporcionada para este volumen. Ese documento queda como **la ruta para crecer**, no como
-el plan. Hay que reescribirlo con esta variante económica.
+**Decisión: Docker en una sola EC2, NO Fargate.** La primera propuesta (Multi-AZ, ALB, NAT, Fargate,
+RDS, ElastiCache, VPC endpoints, Config, Security Hub) costaba del orden de 400–800 USD al mes, un
+orden de magnitud más que el servicio que sostiene. Quedó descartada y vive ahora como la ruta de
+crecimiento por tramos, en la §9 del documento de arquitectura.
 
 Lo que se conserva tal cual: `docker-compose.yml`, FastAPI, Celery con ffmpeg, Postgres+pgvector
 en contenedor sobre disco EBS cifrado, Redis, el nginx del servicio `web`, y el proxy de HLS con
